@@ -1,0 +1,11 @@
+{
+  "name": "sports-league",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:public": "cd frontend/public-app && npm run dev",
+    "dev:admin": "cd frontend/admin-app && npm run dev",
+    "install:all": "cd backend && npm install && cd ../frontend/public-app && npm install && cd ../admin-app && npm install"
+  }
+}
