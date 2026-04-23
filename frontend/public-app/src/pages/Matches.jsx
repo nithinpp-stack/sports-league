@@ -8,7 +8,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
 import Spinner from '../components/ui/Spinner';
 
-const SPORTS = ['all', 'cricket', 'football'];
+const SPORTS = ['all', 'cricket', 'football', 'badminton'];
 
 export default function Matches() {
   const [statusFilter, setStatusFilter] = useState('');
@@ -35,6 +35,7 @@ export default function Matches() {
           className="bg-white dark:bg-gray-900 border border-slate-300 dark:border-gray-700 rounded-lg px-4 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 w-full sm:w-48 transition-all duration-200"
         >
           <option value="">All statuses</option>
+          <option value="upcoming">Upcoming</option>
           <option value="scheduled">Scheduled</option>
           <option value="live">Live</option>
           <option value="completed">Completed</option>
@@ -79,6 +80,11 @@ export default function Matches() {
                   {m.team1Id?.name || 'TBD'}{' '}
                   <span className="text-slate-400 dark:text-gray-500 font-normal">vs</span>{' '}
                   {m.team2Id?.name || 'TBD'}
+                  {m.tournamentId?.sport === 'badminton' && m.category && (
+                    <span className="ml-2 inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20 align-middle">
+                      {m.category}
+                    </span>
+                  )}
                 </p>
                 {m.tournamentId && (
                   <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium mt-0.5">{m.tournamentId?.name || m.tournamentId}</p>

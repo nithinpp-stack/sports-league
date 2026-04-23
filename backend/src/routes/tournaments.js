@@ -9,6 +9,8 @@ import {
   getTournamentTeams,
   getTournamentMatches,
   getStandings,
+  getRankings,
+  getBracket,
 } from '../controllers/tournamentController.js';
 import {
   createTournamentValidator,
@@ -27,6 +29,8 @@ router.get('/:id', getTournament);
 router.get('/:id/teams', getTournamentTeams);
 router.get('/:id/matches', getTournamentMatches);
 router.get('/:id/standings', getStandings);
+router.get('/:id/rankings', getRankings);
+router.get('/:id/bracket', getBracket);
 
 // Protected admin routes
 router.post(

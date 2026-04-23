@@ -21,7 +21,13 @@ export default function TournamentTeams({ tournament, id }) {
   const [showAssignPlayer, setShowAssignPlayer] = useState(false);
   const [assignPlayerId, setAssignPlayerId] = useState('');
   const [assignTab, setAssignTab] = useState('existing');
-  const [createAssignForm, setCreateAssignForm] = useState({ name: '', skill: 'batsman', age: '', phone: '' });
+  // Default skill depends on sport — badminton only has 'shuttler', cricket
+  // defaults to 'batsman'. Set once on mount to match the tournament context.
+  const sportDefaultSkill =
+    tournament?.sport === 'football' ? 'goalkeeper' :
+    tournament?.sport === 'badminton' ? 'shuttler' :
+    'batsman';
+  const [createAssignForm, setCreateAssignForm] = useState({ name: '', skill: sportDefaultSkill, age: '', phone: '', events: [] });
 
   const [editingTeamId, setEditingTeamId] = useState(null);
   const [editTeamForm, setEditTeamForm] = useState({ name: '', totalPoints: 1000 });
@@ -49,10 +55,23 @@ export default function TournamentTeams({ tournament, id }) {
     enabled: !!selectedTeamId,
   });
 
+  // Free-agent pool for this tournament's sport. Using `sport=<sport>` +
+  // `unassigned=true` instead of `tournamentId=<id>` means globally-created
+  // players (e.g. all badminton shuttlers in the system) are available for
+  // assignment to any tournament of the matching sport — no need to pre-bind
+  // each player to a specific tournament before they can be picked.
   const { data: availablePlayersData } = useQuery({
-    queryKey: ['available-players', id],
-    queryFn: () => api.get(`/players?tournamentId=${id}&status=available`).then((r) => r.data),
-    enabled: !!id && showAssignPlayer,
+    queryKey: ['available-players', id, tournament?.sport],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        status: 'available',
+        unassigned: 'true',
+        limit: '100',
+      });
+      if (tournament?.sport) params.set('sport', tournament.sport);
+      return api.get(`/players?${params.toString()}`).then((r) => r.data);
+    },
+    enabled: !!id && showAssignPlayer && !!tournament?.sport,
   });
   const availablePlayers = Array.isArray(availablePlayersData)
     ? availablePlayersData
@@ -105,7 +124,27 @@ export default function TournamentTeams({ tournament, id }) {
 
   const createAndAssignMutation = useMutation({
     mutationFn: async (data) => {
-      const res = await api.post('/players', { ...data, tournamentId: id, status: 'available', sport: tournament?.sport || 'cricket' });
+      // Shape the payload per sport so the backend validator accepts it.
+      // Cricket / football: just name + skill. Badminton: also the event
+      // categories array — a shuttler with no events is ineligible for every
+      // match, so we require at least one.
+      const sport = tournament?.sport || 'cricket';
+      const payload = {
+        name: data.name,
+        sport,
+        skill: data.skill,
+        tournamentId: id,
+        status: 'available',
+      };
+      if (data.age) payload.age = Number(data.age);
+      if (data.phone) payload.phone = data.phone;
+      if (sport === 'badminton') {
+        if (!data.events?.length) {
+          throw { response: { data: { message: 'Pick at least one badminton category (event)' } } };
+        }
+        payload.events = data.events;
+      }
+      const res = await api.post('/players', payload);
       const player = res.data?.player || res.data?.data || res.data;
       await api.post(`/teams/${selectedTeamId}/assign-player`, { playerId: player._id });
       return player;
@@ -116,7 +155,7 @@ export default function TournamentTeams({ tournament, id }) {
       qc.invalidateQueries(['tournament-teams', id]);
       qc.invalidateQueries(['tournament-players', id]);
       qc.invalidateQueries(['available-players', id]);
-      setCreateAssignForm({ name: '', skill: 'batsman', age: '', phone: '' });
+      setCreateAssignForm({ name: '', skill: sportDefaultSkill, age: '', phone: '', events: [] });
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create player'),
   });
@@ -228,14 +267,14 @@ export default function TournamentTeams({ tournament, id }) {
 
         {teams.length ? (
           <>
-            <div className="flex flex-wrap gap-3 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
               {teams.map((team) => {
                 const isSelected = selectedTeamId === team._id;
                 const totalPts = team.totalPoints ?? team.budget;
                 return (
                   <div
                     key={team._id}
-                    className={`relative flex-1 min-w-[180px] rounded-xl border-2 text-left transition-all ${
+                    className={`relative rounded-xl border-2 text-left transition-all ${
                       isSelected
                         ? 'border-emerald-500 bg-emerald-50 shadow-sm'
                         : 'border-gray-200 bg-white hover:border-gray-300'
@@ -416,11 +455,20 @@ export default function TournamentTeams({ tournament, id }) {
                               className="flex-1"
                               placeholder="Select available player..."
                             >
-                              {availablePlayers.map((p) => (
-                                <option key={p._id} value={p._id}>
-                                  {p.name}{p.skill ? ` — ${p.skill.replace(/[-_]/g, ' ')}` : ''}
-                                </option>
-                              ))}
+                              {availablePlayers.map((p) => {
+                                // For badminton show the event categories in
+                                // the label so the admin can pick the right
+                                // shuttler without opening a profile.
+                                const events = Array.isArray(p.events) && p.events.length
+                                  ? ` [${p.events.map((ev) => ev.replace(/_/g, ' ')).join(', ')}]`
+                                  : '';
+                                const skill = p.skill ? ` — ${p.skill.replace(/[-_]/g, ' ')}` : '';
+                                return (
+                                  <option key={p._id} value={p._id}>
+                                    {p.name}{skill}{events}
+                                  </option>
+                                );
+                              })}
                             </Select>
                             <button
                               disabled={!assignPlayerId || assignPlayerMutation.isPending}
@@ -458,6 +506,8 @@ export default function TournamentTeams({ tournament, id }) {
                               >
                                 {(tournament?.sport === 'football'
                                   ? ['goalkeeper', 'defender', 'midfielder', 'forward']
+                                  : tournament?.sport === 'badminton'
+                                  ? ['shuttler']
                                   : ['batsman', 'bowler', 'allrounder', 'wicketkeeper']
                                 ).map((s) => (
                                   <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1).replace(/[-_]/g, ' ')}</option>
@@ -465,6 +515,52 @@ export default function TournamentTeams({ tournament, id }) {
                               </Select>
                             </div>
                           </div>
+
+                          {/* Badminton-only: event category multi-select. A
+                              shuttler has to compete in at least one event to
+                              be eligible for any match. */}
+                          {tournament?.sport === 'badminton' && (
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-2">
+                                Categories (Events) *
+                                <span className="ml-2 text-[11px] font-normal text-gray-500">
+                                  Pick every event this shuttler competes in
+                                </span>
+                              </label>
+                              <div className="flex flex-wrap gap-1.5">
+                                {[
+                                  { value: 'mens_singles', label: "Men's Singles" },
+                                  { value: 'womens_singles', label: "Women's Singles" },
+                                  { value: 'mens_doubles', label: "Men's Doubles" },
+                                  { value: 'womens_doubles', label: "Women's Doubles" },
+                                  { value: 'mixed_doubles', label: 'Mixed Doubles' },
+                                ].map((ev) => {
+                                  const active = createAssignForm.events?.includes(ev.value);
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={ev.value}
+                                      onClick={() =>
+                                        setCreateAssignForm((f) => ({
+                                          ...f,
+                                          events: active
+                                            ? f.events.filter((v) => v !== ev.value)
+                                            : [...(f.events || []), ev.value],
+                                        }))
+                                      }
+                                      className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                                        active
+                                          ? 'bg-emerald-600 text-white border-emerald-600'
+                                          : 'bg-white text-gray-700 border-gray-300 hover:border-emerald-400'
+                                      }`}
+                                    >
+                                      {active ? '✓ ' : ''}{ev.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                           <div className="grid grid-cols-2 gap-3">
                             <div>
                               <label className="block text-xs font-medium text-gray-600 mb-1">Age</label>

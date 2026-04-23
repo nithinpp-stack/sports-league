@@ -8,7 +8,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
 import Spinner from '../components/ui/Spinner';
 
-const SPORTS = ['all', 'cricket', 'football'];
+const SPORTS = ['all', 'cricket', 'football', 'badminton'];
 
 export default function Tournaments() {
   const [statusFilter, setStatusFilter] = useState('');

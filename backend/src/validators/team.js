@@ -6,6 +6,14 @@ export const createTeamValidator = [
   body('ownerId').optional().isMongoId().withMessage('Invalid owner ID'),
   body('budget').optional().isNumeric().withMessage('Budget must be a number'),
   body('logo').optional().trim(),
+  // Inline "create a login for this team's manager" payload. All three fields
+  // must be present together — partial payloads are rejected in the controller
+  // with a clearer message, so here we only shape-check what's provided.
+  body('managerAccount').optional().isObject().withMessage('managerAccount must be an object'),
+  body('managerAccount.name').optional().trim().notEmpty().withMessage('Manager name cannot be empty'),
+  body('managerAccount.email').optional().trim().isEmail().withMessage('Manager login email must be valid'),
+  body('managerAccount.password').optional().isLength({ min: 6 }).withMessage('Manager password must be at least 6 characters'),
+  body('managerAccount.phone').optional().trim(),
 ];
 
 export const updateTeamValidator = [

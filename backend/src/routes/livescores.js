@@ -11,6 +11,7 @@ import {
   undoLastBall,
   recordFootballEvent,
   undoFootballEvent,
+  nextBadmintonGame,
 } from '../controllers/liveScoreController.js';
 
 const router = Router();
@@ -25,5 +26,6 @@ router.post('/:matchId/reopen', authenticate, permit('matches.score'), reopenMat
 router.post('/:matchId/undo', authenticate, permit('matches.score'), undoLastBall);
 router.post('/:matchId/football-event', authenticate, permit('matches.score'), recordFootballEvent);
 router.post('/:matchId/football-undo', authenticate, permit('matches.score'), undoFootballEvent);
+router.post('/:matchId/next-game', authenticate, permit('matches.score'), nextBadmintonGame);
 
 export default router;

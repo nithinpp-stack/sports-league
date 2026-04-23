@@ -22,6 +22,71 @@ const MATCH_STATUS_COLORS = {
   cancelled: 'bg-gray-100 text-gray-500',
 };
 
+const BADMINTON_CATEGORIES = [
+  { value: 'mens_singles', label: "Men's Singles" },
+  { value: 'womens_singles', label: "Women's Singles" },
+  { value: 'mens_doubles', label: "Men's Doubles" },
+  { value: 'womens_doubles', label: "Women's Doubles" },
+  { value: 'mixed_doubles', label: 'Mixed Doubles' },
+];
+const CATEGORY_LABEL = BADMINTON_CATEGORIES.reduce((m, c) => ({ ...m, [c.value]: c.label }), {});
+
+// Badminton: 1 player per side for singles, 2 per side for doubles / mixed.
+const requiredPlayersFor = (category) => {
+  if (!category) return 0;
+  if (category.endsWith('_singles')) return 1;
+  if (category.endsWith('_doubles')) return 2;
+  return 0;
+};
+
+// Compact checkbox-pill picker for N players from a team roster.
+function BadmintonPlayerPicker({ label, players, selected, onChange, max, loading }) {
+  const toggle = (id) => {
+    if (selected.includes(id)) {
+      onChange(selected.filter((x) => x !== id));
+    } else if (selected.length < max) {
+      onChange([...selected, id]);
+    }
+  };
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">
+        {label} <span className="text-red-500">*</span>{' '}
+        <span className="text-gray-400 font-normal">({selected.length}/{max} selected)</span>
+      </label>
+      {loading ? (
+        <p className="text-xs text-gray-400 italic py-2">Loading roster…</p>
+      ) : players.length === 0 ? (
+        <p className="text-xs text-amber-600 py-2">This team has no players yet.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5 p-2 bg-white border border-gray-300 rounded-lg max-h-32 overflow-y-auto">
+          {players.map((p) => {
+            const isSelected = selected.includes(p._id);
+            const disabled = !isSelected && selected.length >= max;
+            return (
+              <button
+                key={p._id}
+                type="button"
+                disabled={disabled}
+                onClick={() => toggle(p._id)}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  isSelected
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : disabled
+                      ? 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-emerald-400 hover:bg-emerald-50'
+                }`}
+              >
+                {p.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TournamentMatches({ tournament, teams, id }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -29,13 +94,40 @@ export default function TournamentMatches({ tournament, teams, id }) {
 
   const [selectedMatchIds, setSelectedMatchIds] = useState([]);
   const [showMatchForm, setShowMatchForm] = useState(false);
-  const [matchForm, setMatchForm] = useState({ team1Id: '', team2Id: '', date: '', venue: '', totalOvers: 20 });
+  const [matchForm, setMatchForm] = useState({
+    team1Id: '', team2Id: '', date: '', venue: '', totalOvers: 20,
+    category: 'mens_singles', team1Players: [], team2Players: [],
+  });
   const [showGenerateForm, setShowGenerateForm] = useState(false);
   const [generateFormat, setGenerateFormat] = useState('round_robin');
   const [generateVenue, setGenerateVenue] = useState('');
+  const [generateCategory, setGenerateCategory] = useState('mens_singles');
   const [editingMatchId, setEditingMatchId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [viewingScorecardMatchId, setViewingScorecardMatchId] = useState(null);
+
+  // Roster fetches for the Add Match form — only when a team is picked
+  const { data: createT1Roster, isLoading: createT1Loading } = useQuery({
+    queryKey: ['team-players', matchForm.team1Id],
+    queryFn: () => api.get(`/teams/${matchForm.team1Id}/players`).then((r) => r.data?.players || []),
+    enabled: !!matchForm.team1Id,
+  });
+  const { data: createT2Roster, isLoading: createT2Loading } = useQuery({
+    queryKey: ['team-players', matchForm.team2Id],
+    queryFn: () => api.get(`/teams/${matchForm.team2Id}/players`).then((r) => r.data?.players || []),
+    enabled: !!matchForm.team2Id,
+  });
+  // Roster fetches for the Edit form
+  const { data: editT1Roster, isLoading: editT1Loading } = useQuery({
+    queryKey: ['team-players', editForm.team1Id],
+    queryFn: () => api.get(`/teams/${editForm.team1Id}/players`).then((r) => r.data?.players || []),
+    enabled: !!editingMatchId && !!editForm.team1Id,
+  });
+  const { data: editT2Roster, isLoading: editT2Loading } = useQuery({
+    queryKey: ['team-players', editForm.team2Id],
+    queryFn: () => api.get(`/teams/${editForm.team2Id}/players`).then((r) => r.data?.players || []),
+    enabled: !!editingMatchId && !!editForm.team2Id,
+  });
 
   const { data: matchesData, isLoading: mLoading } = useQuery({
     queryKey: ['tournament-matches', id],
@@ -55,7 +147,10 @@ export default function TournamentMatches({ tournament, teams, id }) {
       toast.success('Match created!');
       qc.invalidateQueries(['tournament-matches', id]);
       setShowMatchForm(false);
-      setMatchForm({ team1Id: '', team2Id: '', date: '', venue: '', totalOvers: 20 });
+      setMatchForm({
+        team1Id: '', team2Id: '', date: '', venue: '', totalOvers: 20,
+        category: 'mens_singles', team1Players: [], team2Players: [],
+      });
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create match'),
   });
@@ -120,20 +215,41 @@ export default function TournamentMatches({ tournament, teams, id }) {
     }
   };
 
+  const sport = tournament?.sport || 'cricket';
+  const isCricket = sport === 'cricket';
+  const isBadminton = sport === 'badminton';
+
   const handleMatchSubmit = (e) => {
     e.preventDefault();
     if (matchForm.team1Id === matchForm.team2Id) {
       toast.error('Team 1 and Team 2 must be different');
       return;
     }
-    createMatchMutation.mutate({
+    const payload = {
       tournamentId: id,
       team1Id: matchForm.team1Id,
       team2Id: matchForm.team2Id,
       date: matchForm.date,
       venue: matchForm.venue,
-      totalOvers: Number(matchForm.totalOvers) || 20,
-    });
+    };
+    if (isCricket) payload.totalOvers = Number(matchForm.totalOvers) || 20;
+    if (isBadminton && matchForm.category) {
+      payload.category = matchForm.category;
+      // Players are optional at create time, but if either side has any, both sides must be complete.
+      const expected = requiredPlayersFor(matchForm.category);
+      const t1 = matchForm.team1Players || [];
+      const t2 = matchForm.team2Players || [];
+      const anySelected = t1.length > 0 || t2.length > 0;
+      if (anySelected && (t1.length !== expected || t2.length !== expected)) {
+        toast.error(`Select exactly ${expected} player(s) per side for ${CATEGORY_LABEL[matchForm.category]}`);
+        return;
+      }
+      if (anySelected) {
+        payload.team1Players = t1;
+        payload.team2Players = t2;
+      }
+    }
+    createMatchMutation.mutate(payload);
   };
 
   return (
@@ -188,6 +304,22 @@ export default function TournamentMatches({ tournament, teams, id }) {
                 </button>
               </div>
             </div>
+            {tournament?.sport === 'badminton' && (
+              <div className="min-w-[180px]">
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={generateCategory}
+                  onChange={(e) => setGenerateCategory(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+                >
+                  {BADMINTON_CATEGORIES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="flex-1 min-w-[180px]">
               <label className="block text-xs font-medium text-gray-600 mb-1">Venue (optional)</label>
               <input
@@ -201,7 +333,14 @@ export default function TournamentMatches({ tournament, teams, id }) {
             <button
               type="button"
               disabled={generateMutation.isPending}
-              onClick={() => generateMutation.mutate({ tournamentId: id, format: generateFormat, venue: generateVenue })}
+              onClick={() =>
+                generateMutation.mutate({
+                  tournamentId: id,
+                  format: generateFormat,
+                  venue: generateVenue,
+                  ...(tournament?.sport === 'badminton' ? { category: generateCategory } : {}),
+                })
+              }
               className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
             >
               {generateMutation.isPending ? 'Generating...' : 'Generate'}
@@ -220,7 +359,7 @@ export default function TournamentMatches({ tournament, teams, id }) {
               <Select
                 required
                 value={matchForm.team1Id}
-                onChange={(e) => setMatchForm((f) => ({ ...f, team1Id: e.target.value }))}
+                onChange={(e) => setMatchForm((f) => ({ ...f, team1Id: e.target.value, team1Players: [] }))}
                 className="w-full"
                 placeholder="Select team..."
               >
@@ -236,7 +375,7 @@ export default function TournamentMatches({ tournament, teams, id }) {
               <Select
                 required
                 value={matchForm.team2Id}
-                onChange={(e) => setMatchForm((f) => ({ ...f, team2Id: e.target.value }))}
+                onChange={(e) => setMatchForm((f) => ({ ...f, team2Id: e.target.value, team2Players: [] }))}
                 className="w-full"
                 placeholder="Select team..."
               >
@@ -269,17 +408,65 @@ export default function TournamentMatches({ tournament, teams, id }) {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Total Overs</label>
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={matchForm.totalOvers}
-                onChange={(e) => setMatchForm((f) => ({ ...f, totalOvers: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-              />
-            </div>
+            {isCricket && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Total Overs</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={matchForm.totalOvers}
+                  onChange={(e) => setMatchForm((f) => ({ ...f, totalOvers: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                />
+              </div>
+            )}
+            {isBadminton && (
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                <Select
+                  required
+                  value={matchForm.category}
+                  onChange={(e) => setMatchForm((f) => ({
+                    ...f,
+                    category: e.target.value,
+                    // Singles=1, doubles=2 — switching invalidates prior selections
+                    team1Players: [],
+                    team2Players: [],
+                  }))}
+                  className="w-full"
+                >
+                  {BADMINTON_CATEGORIES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+            {isBadminton && matchForm.team1Id && (
+              <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <BadmintonPlayerPicker
+                  label={`${teams.find((t) => t._id === matchForm.team1Id)?.name || 'Team 1'} — On-court players`}
+                  players={createT1Roster || []}
+                  selected={matchForm.team1Players}
+                  onChange={(ids) => setMatchForm((f) => ({ ...f, team1Players: ids }))}
+                  max={requiredPlayersFor(matchForm.category)}
+                  loading={createT1Loading}
+                />
+                {matchForm.team2Id && (
+                  <BadmintonPlayerPicker
+                    label={`${teams.find((t) => t._id === matchForm.team2Id)?.name || 'Team 2'} — On-court players`}
+                    players={createT2Roster || []}
+                    selected={matchForm.team2Players}
+                    onChange={(ids) => setMatchForm((f) => ({ ...f, team2Players: ids }))}
+                    max={requiredPlayersFor(matchForm.category)}
+                    loading={createT2Loading}
+                  />
+                )}
+                <p className="sm:col-span-2 text-[11px] text-gray-400 -mt-2">
+                  Tip: you can leave players empty now and assign them before the match starts.
+                </p>
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2">
             <button
@@ -350,6 +537,19 @@ export default function TournamentMatches({ tournament, teams, id }) {
                   <span className="font-medium text-gray-800">
                     {m.team1Id?.name ?? 'TBD'} vs {m.team2Id?.name ?? 'TBD'}
                   </span>
+                  {isBadminton && m.category && (
+                    <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      {CATEGORY_LABEL[m.category] || m.category}
+                    </span>
+                  )}
+                  {isBadminton && !m.category && (
+                    <span
+                      className="ml-2 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200"
+                      title="Badminton match is missing a category. Edit the match to set one."
+                    >
+                      No category
+                    </span>
+                  )}
                   <span
                     className={`ml-3 px-2 py-0.5 rounded text-xs font-medium ${MATCH_STATUS_COLORS[m.status] || 'bg-gray-100 text-gray-700'}`}
                   >
@@ -373,6 +573,10 @@ export default function TournamentMatches({ tournament, teams, id }) {
                           date: m.date ? new Date(m.date).toISOString().slice(0, 16) : '',
                           venue: m.venue || '',
                           status: m.status || 'upcoming',
+                          category: m.category || 'mens_singles',
+                          // Pre-populate on-court players from populated refs (populated objects have _id)
+                          team1Players: (m.team1Players || []).map((p) => p?._id || p),
+                          team2Players: (m.team2Players || []).map((p) => p?._id || p),
                         });
                       }
                     }}
@@ -549,7 +753,7 @@ export default function TournamentMatches({ tournament, teams, id }) {
                       <label className="block text-xs font-medium text-gray-600 mb-1">Team 1</label>
                       <Select
                         value={editForm.team1Id}
-                        onChange={(e) => setEditForm((f) => ({ ...f, team1Id: e.target.value }))}
+                        onChange={(e) => setEditForm((f) => ({ ...f, team1Id: e.target.value, team1Players: [] }))}
                         className="w-full"
                         placeholder="Select team..."
                       >
@@ -562,7 +766,7 @@ export default function TournamentMatches({ tournament, teams, id }) {
                       <label className="block text-xs font-medium text-gray-600 mb-1">Team 2</label>
                       <Select
                         value={editForm.team2Id}
-                        onChange={(e) => setEditForm((f) => ({ ...f, team2Id: e.target.value }))}
+                        onChange={(e) => setEditForm((f) => ({ ...f, team2Id: e.target.value, team2Players: [] }))}
                         className="w-full"
                         placeholder="Select team..."
                       >
@@ -605,6 +809,48 @@ export default function TournamentMatches({ tournament, teams, id }) {
                         <option value="cancelled">Cancelled</option>
                       </Select>
                     </div>
+                    {isBadminton && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                        <Select
+                          value={editForm.category || 'mens_singles'}
+                          onChange={(e) => setEditForm((f) => ({
+                            ...f,
+                            category: e.target.value,
+                            // Player count changes between singles/doubles; drop prior selection
+                            team1Players: [],
+                            team2Players: [],
+                          }))}
+                          className="w-full"
+                        >
+                          {BADMINTON_CATEGORIES.map((c) => (
+                            <option key={c.value} value={c.value}>{c.label}</option>
+                          ))}
+                        </Select>
+                      </div>
+                    )}
+                    {isBadminton && editForm.team1Id && (
+                      <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <BadmintonPlayerPicker
+                          label={`${teams.find((t) => t._id === editForm.team1Id)?.name || 'Team 1'} — On-court players`}
+                          players={editT1Roster || []}
+                          selected={editForm.team1Players || []}
+                          onChange={(ids) => setEditForm((f) => ({ ...f, team1Players: ids }))}
+                          max={requiredPlayersFor(editForm.category)}
+                          loading={editT1Loading}
+                        />
+                        {editForm.team2Id && (
+                          <BadmintonPlayerPicker
+                            label={`${teams.find((t) => t._id === editForm.team2Id)?.name || 'Team 2'} — On-court players`}
+                            players={editT2Roster || []}
+                            selected={editForm.team2Players || []}
+                            onChange={(ids) => setEditForm((f) => ({ ...f, team2Players: ids }))}
+                            max={requiredPlayersFor(editForm.category)}
+                            loading={editT2Loading}
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex justify-end gap-2 pt-1">
                     <button
@@ -617,7 +863,34 @@ export default function TournamentMatches({ tournament, teams, id }) {
                     <button
                       type="button"
                       disabled={updateMatchMutation.isPending}
-                      onClick={() => updateMatchMutation.mutate({ matchId: m._id, data: editForm })}
+                      onClick={() => {
+                        const payload = { ...editForm };
+                        if (isBadminton) {
+                          const expected = requiredPlayersFor(editForm.category);
+                          const t1 = editForm.team1Players || [];
+                          const t2 = editForm.team2Players || [];
+                          const anySelected = t1.length > 0 || t2.length > 0;
+                          if (anySelected && (t1.length !== expected || t2.length !== expected)) {
+                            toast.error(`Select exactly ${expected} player(s) per side for ${CATEGORY_LABEL[editForm.category]}`);
+                            return;
+                          }
+                          // Only send player arrays when complete, mirroring create-form behavior.
+                          // Sending empty [] would cause the backend to reject as "wrong count".
+                          if (anySelected && t1.length === expected && t2.length === expected) {
+                            payload.team1Players = t1;
+                            payload.team2Players = t2;
+                          } else {
+                            delete payload.team1Players;
+                            delete payload.team2Players;
+                          }
+                        } else {
+                          // Non-badminton — don't send badminton-specific fields
+                          delete payload.team1Players;
+                          delete payload.team2Players;
+                          delete payload.category;
+                        }
+                        updateMatchMutation.mutate({ matchId: m._id, data: payload });
+                      }}
                       className="px-4 py-2 text-sm bg-amber-500 text-white font-medium rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-60"
                     >
                       {updateMatchMutation.isPending ? 'Saving...' : 'Save'}

@@ -7,7 +7,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
 import { MapPin, ArrowRight, Activity, Trophy, Users, Zap } from '../components/ui/Icons';
 
-const sports = ['all', 'cricket', 'football'];
+const sports = ['all', 'cricket', 'football', 'badminton'];
 
 export default function Home() {
   const [sportFilter, setSportFilter] = useState('all');
@@ -192,7 +192,7 @@ export default function Home() {
         {[
           { label: 'Live Matches', value: liveList.length, Icon: Activity, color: 'text-red-500 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-500/10' },
           { label: 'Tournaments', value: allTournaments.length, Icon: Trophy, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-500/10' },
-          { label: 'Sports', value: 2, Icon: Users, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-500/10' },
+          { label: 'Sports', value: 3, Icon: Users, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-500/10' },
           { label: 'Auto Refresh', value: '10s', Icon: Zap, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/10' },
         ].map((stat) => (
           <div key={stat.label} className="bg-white dark:bg-gray-900 rounded-2xl p-6 border border-slate-200 dark:border-gray-800 text-center">

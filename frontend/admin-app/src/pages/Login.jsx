@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import api from '../services/api';
+
+const MANAGER_ROLES = ['manager', 'team_owner'];
 
 export default function Login() {
   const { login } = useAuth();
@@ -18,6 +21,23 @@ export default function Login() {
     try {
       const userData = await login(email, password);
       toast.success(`Welcome back, ${userData.name}!`);
+
+      // Team managers don't have an admin dashboard — send them straight to
+      // their auction bidding page. Fall back to "/" if we can't resolve a
+      // team (Sidebar will then show the "No team assigned" message).
+      if (MANAGER_ROLES.includes(userData.role)) {
+        try {
+          const res = await api.get('/teams/my-team');
+          const team = res.data?.data ?? res.data;
+          const tid = team?.tournamentId?._id || team?.tournamentId;
+          if (tid) {
+            navigate(`/auctions/${tid}/bid`);
+            return;
+          }
+        } catch (_) {
+          // fall through to default redirect
+        }
+      }
       navigate('/');
     } catch (err) {
       setError(err.response?.data?.message || 'Invalid email or password.');

@@ -13,6 +13,18 @@ const footballStatsSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const badmintonStatsSchema = new mongoose.Schema(
+  {
+    matches: { type: Number, default: 0 },
+    wins: { type: Number, default: 0 },
+    winRate: { type: Number, default: 0 },
+    pointsWon: { type: Number, default: 0 },
+    pointsLost: { type: Number, default: 0 },
+    bestRally: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const statsSchema = new mongoose.Schema(
   {
     matches: { type: Number, default: 0 },
@@ -40,14 +52,16 @@ const playerSchema = new mongoose.Schema(
     },
     sport: {
       type: String,
-      enum: ['cricket', 'football'],
+      enum: ['cricket', 'football', 'badminton'],
       default: 'cricket',
     },
     skill: {
       type: String,
-      enum: ['batsman', 'bowler', 'allrounder', 'wicketkeeper', 'goalkeeper', 'defender', 'midfielder', 'forward'],
+      enum: ['batsman', 'bowler', 'allrounder', 'wicketkeeper', 'goalkeeper', 'defender', 'midfielder', 'forward', 'shuttler'],
       required: [true, 'Skill is required'],
     },
+    // Cricket-only: swing/stance. Validated via pre-validate hook so non-cricket players
+    // can't get accidentally-stored values that leak into the UI.
     battingStyle: {
       type: String,
       enum: ['right-hand', 'left-hand'],
@@ -55,6 +69,17 @@ const playerSchema = new mongoose.Schema(
     bowlingStyle: {
       type: String,
       enum: ['fast', 'medium', 'spin', 'none'],
+    },
+    // Badminton-only: which events this player competes in. Drives eligibility for
+    // Men's Singles vs Mixed Doubles etc. when assigning players to a match.
+    events: {
+      type: [
+        {
+          type: String,
+          enum: ['mens_singles', 'womens_singles', 'mens_doubles', 'womens_doubles', 'mixed_doubles'],
+        },
+      ],
+      default: undefined,
     },
     address: {
       type: String,
@@ -96,9 +121,27 @@ const playerSchema = new mongoose.Schema(
     footballStats: {
       type: footballStatsSchema,
     },
+    badmintonStats: {
+      type: badmintonStatsSchema,
+    },
   },
   { timestamps: true }
 );
+
+// Prevent cross-sport field contamination — e.g. a football player saved with a
+// bowlingStyle, or a cricket player saved with badminton events. If the document is
+// for a different sport, silently drop the mismatched fields before validation.
+playerSchema.pre('validate', function stripCrossSportFields(next) {
+  const s = this.sport;
+  if (s !== 'cricket') {
+    this.battingStyle = undefined;
+    this.bowlingStyle = undefined;
+  }
+  if (s !== 'badminton') {
+    this.events = undefined;
+  }
+  next();
+});
 
 playerSchema.index({ tournamentId: 1 });
 playerSchema.index({ teamId: 1 });

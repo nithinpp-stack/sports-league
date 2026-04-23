@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   FiHome,
@@ -11,9 +11,13 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiKey,
+  FiDollarSign,
 } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
 
+// Admin-collection nav. Managers/team_owners (from the User collection) never
+// see any of these — they get a single "Auction" entry instead (see below).
 const navItems = [
   { to: '/', label: 'Dashboard', icon: FiHome, exact: true },
   { to: '/tournaments', label: 'Tournaments', icon: FiAward },
@@ -25,10 +29,34 @@ const navItems = [
   { to: '/roles', label: 'Roles', icon: FiKey },
 ];
 
+const MANAGER_ROLES = ['manager', 'team_owner'];
+
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  // For managers only — the tournament their team is in, used to build the
+  // Auction link target. Null until /teams/my-team resolves.
+  const [myTournamentId, setMyTournamentId] = useState(null);
+
+  const isManager = MANAGER_ROLES.includes(user?.role);
+
+  useEffect(() => {
+    if (!isManager) {
+      setMyTournamentId(null);
+      return;
+    }
+    let cancelled = false;
+    api.get('/teams/my-team')
+      .then((res) => {
+        // api interceptor unwraps `.data` → team object directly
+        const team = res.data?.data ?? res.data;
+        const tid = team?.tournamentId?._id || team?.tournamentId;
+        if (!cancelled) setMyTournamentId(tid || null);
+      })
+      .catch(() => { if (!cancelled) setMyTournamentId(null); });
+    return () => { cancelled = true; };
+  }, [isManager]);
 
   const handleLogout = async () => {
     await logout();
@@ -39,17 +67,22 @@ export default function Sidebar() {
   const hasWildcard = perms.includes('*');
   const hasPerm = (p) => hasWildcard || perms.includes(p);
 
-  const visibleItems = navItems.filter((item) => {
-    if (item.to === '/') return true;
-    if (item.to === '/tournaments') return hasPerm('tournaments.view');
-    if (item.to === '/teams') return hasPerm('teams.view');
-    if (item.to === '/managers') return hasPerm('managers.view');
-    if (item.to === '/players') return hasPerm('players.view');
-    if (item.to === '/users') return hasPerm('admins.view');
-    if (item.to === '/registrations') return hasPerm('registrations.view');
-    if (item.to === '/roles') return hasPerm('roles.view');
-    return true;
-  });
+  // Managers get a single-item nav; admins get the permission-filtered list.
+  const visibleItems = isManager
+    ? (myTournamentId
+        ? [{ to: `/auctions/${myTournamentId}/bid`, label: 'Auction', icon: FiDollarSign, exact: false }]
+        : [])
+    : navItems.filter((item) => {
+        if (item.to === '/') return true;
+        if (item.to === '/tournaments') return hasPerm('tournaments.view');
+        if (item.to === '/teams') return hasPerm('teams.view');
+        if (item.to === '/managers') return hasPerm('managers.view');
+        if (item.to === '/players') return hasPerm('players.view');
+        if (item.to === '/users') return hasPerm('admins.view');
+        if (item.to === '/registrations') return hasPerm('registrations.view');
+        if (item.to === '/roles') return hasPerm('roles.view');
+        return true;
+      });
 
   return (
     <div
@@ -74,7 +107,9 @@ export default function Sidebar() {
           {!collapsed && (
             <>
               <div className="min-w-0 flex-1">
-                <h1 className="text-sm font-bold text-gray-900 truncate">Admin Panel</h1>
+                <h1 className="text-sm font-bold text-gray-900 truncate">
+                  {isManager ? 'Team Portal' : 'Admin Panel'}
+                </h1>
                 <p className="text-[11px] text-gray-500 truncate">Sports League</p>
               </div>
               <button
@@ -106,6 +141,11 @@ export default function Sidebar() {
               {!collapsed && <span className="truncate">{label}</span>}
             </NavLink>
           ))}
+          {isManager && !myTournamentId && !collapsed && (
+            <p className="text-[11px] text-gray-500 px-3 py-2">
+              No team assigned yet.
+            </p>
+          )}
         </nav>
 
         <div className="px-3 py-3 space-y-2">

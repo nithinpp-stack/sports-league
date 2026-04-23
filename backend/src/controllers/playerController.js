@@ -14,7 +14,12 @@ export const listPlayers = async (req, res, next) => {
     if (req.query.tournamentId) filter.tournamentId = req.query.tournamentId;
     if (req.query.teamId) filter.teamId = req.query.teamId;
     if (req.query.skill) filter.skill = req.query.skill;
+    if (req.query.sport) filter.sport = req.query.sport;
     if (req.query.status) filter.status = req.query.status;
+    // `unassigned=true` narrows to the free-agent pool (no team). Useful for
+    // the "Assign Existing" dropdown on a tournament page, which wants every
+    // available shuttler/batsman in the system that isn't already on a team.
+    if (req.query.unassigned === 'true') filter.teamId = null;
     if (req.query.search) {
       filter.name = { $regex: req.query.search, $options: 'i' };
     }
@@ -82,12 +87,26 @@ export const updatePlayer = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Not authorized to update this player' });
     }
 
-    const updated = await Player.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    // Merge-then-save so the pre('validate') hook runs and strips cross-sport fields
+    // (e.g. clearing battingStyle when a player is updated to sport='football').
+    // findByIdAndUpdate skips pre-validate hooks, which defeats that safety net.
+    //
+    // `tournamentId` is allowed so the tournament page's "Add Existing" flow can
+    // attach a free-agent/cross-tournament player via a lightweight PUT body like
+    // `{ tournamentId, status: 'available' }`. Without this field in the allow
+    // list the PUT silently dropped `tournamentId` and the player never joined
+    // the tournament (UI showed "Players (0)" after a seemingly-successful add).
+    const ALLOWED_FIELDS = [
+      'name', 'sport', 'skill', 'age', 'battingStyle', 'bowlingStyle', 'events',
+      'address', 'phone', 'photo', 'basePoints', 'basePrice', 'teamId',
+      'tournamentId', 'status',
+    ];
+    for (const key of ALLOWED_FIELDS) {
+      if (key in req.body) player[key] = req.body[key];
+    }
+    await player.save();
 
-    return res.json({ success: true, data: { player: updated } });
+    return res.json({ success: true, data: { player } });
   } catch (err) {
     next(err);
   }

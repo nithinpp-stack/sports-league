@@ -14,9 +14,14 @@ function getBidIncrement(currentBid) {
 // GET /:tournamentId
 export const getAuction = async (req, res, next) => {
   try {
+    // soldPlayers.playerId / .teamId are populated so the team-side bidding
+    // UI can render the auction history and per-team squad roster without
+    // needing a second round-trip per sale.
     const auction = await Auction.findOne({ tournamentId: req.params.tournamentId })
       .populate('currentPlayerId', 'name skill basePoints')
-      .populate('currentBidderId', 'name');
+      .populate('currentBidderId', 'name')
+      .populate('soldPlayers.playerId', 'name skill basePoints')
+      .populate('soldPlayers.teamId', 'name');
     if (!auction) {
       return res.status(404).json({ success: false, message: 'Auction not found' });
     }
@@ -30,7 +35,7 @@ export const getAuction = async (req, res, next) => {
 export const startAuction = async (req, res, next) => {
   try {
     const { tournamentId } = req.params;
-    const { playerSets: customSets, maxSquadSize = 15 } = req.body;
+    const { playerSets: customSets, maxSquadSize = 15, minSquadSize = 11 } = req.body;
 
     const existing = await Auction.findOne({ tournamentId });
     if (existing) {
@@ -40,21 +45,31 @@ export const startAuction = async (req, res, next) => {
     const players = await Player.find({ tournamentId, status: 'available' }).select('_id basePoints');
     const playerIds = players.map((p) => p._id);
 
-    // Build player sets
+    // Build player sets. Each set carries an `order` number — nextPlayer()
+    // walks sets in ascending order when auto-advancing past an empty one,
+    // so the order here fixes the call sequence (Marquee first, then Capped,
+    // then Uncapped — same shape as an IPL auction day).
     let playerSets = [];
     if (customSets && Array.isArray(customSets) && customSets.length > 0) {
-      playerSets = customSets;
+      // Preserve caller-supplied order if present; otherwise infer from index.
+      playerSets = customSets.map((s, idx) => ({
+        name: s.name,
+        order: typeof s.order === 'number' ? s.order : idx,
+        playerIds: s.playerIds || [],
+      }));
     } else {
       // Auto-create sets based on basePoints tiers
       const marquee = players.filter((p) => (p.basePoints ?? 0) >= 100).map((p) => p._id);
       const capped = players.filter((p) => (p.basePoints ?? 0) >= 50 && (p.basePoints ?? 0) < 100).map((p) => p._id);
       const uncapped = players.filter((p) => (p.basePoints ?? 0) < 50).map((p) => p._id);
-      if (marquee.length) playerSets.push({ name: 'Marquee', playerIds: marquee });
-      if (capped.length) playerSets.push({ name: 'Capped', playerIds: capped });
-      if (uncapped.length) playerSets.push({ name: 'Uncapped', playerIds: uncapped });
+      if (marquee.length) playerSets.push({ name: 'Marquee', order: 0, playerIds: marquee });
+      if (capped.length) playerSets.push({ name: 'Capped', order: 1, playerIds: capped });
+      if (uncapped.length) playerSets.push({ name: 'Uncapped', order: 2, playerIds: uncapped });
     }
 
-    const currentSet = playerSets.length > 0 ? playerSets[0].name : '';
+    // First set (by order) is where we start calling.
+    const sortedSets = [...playerSets].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const currentSet = sortedSets.length > 0 ? sortedSets[0].name : '';
 
     const auction = await Auction.create({
       tournamentId,
@@ -63,6 +78,7 @@ export const startAuction = async (req, res, next) => {
       playerSets,
       currentSet,
       maxSquadSize,
+      minSquadSize,
     });
 
     const io = req.app.get('io');
@@ -113,6 +129,43 @@ export const resumeAuction = async (req, res, next) => {
   }
 };
 
+// POST /:tournamentId/reset — wipe the auction doc so a fresh one can be
+// started. Closes the hole where admins had no way to re-pool after new
+// players were added post-startAuction, or where an auction was started
+// before any players were available (leaving an empty 'completed' doc that
+// permanently blocked the Start Auction button).
+//
+// We also flip every 'unsold' player in the tournament back to 'available'
+// so they re-enter the next pool. 'sold' players are left alone — they're
+// already on teams and aren't fair game to re-auction.
+export const resetAuction = async (req, res, next) => {
+  try {
+    const { tournamentId } = req.params;
+    const auction = await Auction.findOne({ tournamentId });
+    if (!auction) {
+      return res.status(404).json({ success: false, message: 'Auction not found' });
+    }
+
+    const reopened = await Player.updateMany(
+      { tournamentId, status: 'unsold' },
+      { $set: { status: 'available' } }
+    );
+
+    await Auction.deleteOne({ _id: auction._id });
+
+    const io = req.app.get('io');
+    io.of('/auction').to(`auction:${tournamentId}`).emit('auction-reset', { tournamentId });
+
+    res.json({
+      success: true,
+      message: 'Auction reset. Click Start Auction to repool.',
+      data: { reopenedPlayers: reopened.modifiedCount ?? 0 },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // POST /:tournamentId/end
 export const endAuction = async (req, res, next) => {
   try {
@@ -131,16 +184,34 @@ export const endAuction = async (req, res, next) => {
     auction.goingTwice = false;
     await auction.save();
 
+    // Undersized-team check. We don't block the admin from closing the auction
+    // (they may intentionally be running a short-form draft), but we do hand
+    // back a warning list so the UI can surface a banner with names + counts.
+    const minSquad = auction.minSquadSize ?? 11;
+    const tournamentTeams = await Team.find({ tournamentId }).select('_id name playerCount');
+    const undersizedTeams = tournamentTeams
+      .filter((t) => (t.playerCount ?? 0) < minSquad)
+      .map((t) => ({
+        teamId: t._id,
+        name: t.name,
+        playerCount: t.playerCount ?? 0,
+        shortfall: minSquad - (t.playerCount ?? 0),
+      }));
+
     const summary = {
       soldCount: auction.soldPlayers.length,
       unsoldCount: auction.unsoldPlayers.length,
       remainingCount: auction.remainingPlayers.length,
+      minSquadSize: minSquad,
+    };
+    const warnings = {
+      undersizedTeams,
     };
 
     const io = req.app.get('io');
-    io.of('/auction').to(`auction:${tournamentId}`).emit('auction-ended', { tournamentId, summary });
+    io.of('/auction').to(`auction:${tournamentId}`).emit('auction-ended', { tournamentId, summary, warnings });
 
-    res.json({ success: true, data: { auction, summary } });
+    res.json({ success: true, data: { auction, summary, warnings } });
   } catch (err) {
     next(err);
   }
@@ -155,27 +226,56 @@ export const nextPlayer = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Auction not found' });
     }
 
-    // If playerSets exist, pick next player from current set first
+    // Helper: find the first still-unsold player in a given set.
+    const nextInSet = (setName) => {
+      if (!setName) return null;
+      const set = auction.playerSets.find((s) => s.name === setName);
+      if (!set) return null;
+      const hit = set.playerIds.find((pid) =>
+        auction.remainingPlayers.some((rp) => rp.toString() === pid.toString())
+      );
+      return hit || null;
+    };
+
     let nextPlayerId = null;
-    if (auction.playerSets && auction.playerSets.length > 0 && auction.currentSet) {
-      const setIndex = auction.playerSets.findIndex((s) => s.name === auction.currentSet);
-      if (setIndex !== -1) {
-        const setPlayerIds = auction.playerSets[setIndex].playerIds;
-        // Find first player in this set that is still in remainingPlayers
-        const remainingSet = setPlayerIds.filter((pid) =>
-          auction.remainingPlayers.some((rp) => rp.toString() === pid.toString())
-        );
-        if (remainingSet.length > 0) {
-          nextPlayerId = remainingSet[0];
-          // Remove from remainingPlayers
-          auction.remainingPlayers = auction.remainingPlayers.filter(
-            (rp) => rp.toString() !== nextPlayerId.toString()
-          );
+    let setChanged = false;
+
+    // 1) Try the current set
+    if (auction.playerSets?.length && auction.currentSet) {
+      nextPlayerId = nextInSet(auction.currentSet);
+    }
+
+    // 2) If the current set is exhausted, walk forward by `order` to find the
+    //    next set that still has remaining players. First-hit wins. This is
+    //    the core auto-advance behaviour — admins no longer have to manually
+    //    click Change Set when a bracket is empty.
+    if (!nextPlayerId && auction.playerSets?.length) {
+      const currentOrder = auction.playerSets.find((s) => s.name === auction.currentSet)?.order ?? -1;
+      const upcoming = auction.playerSets
+        .filter((s) => (s.order ?? 0) > currentOrder)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+      for (const set of upcoming) {
+        const hit = nextInSet(set.name);
+        if (hit) {
+          nextPlayerId = hit;
+          auction.currentSet = set.name;
+          setChanged = true;
+          break;
         }
       }
     }
 
-    // Fallback to generic remainingPlayers queue
+    // 3) Remove the picked player from remainingPlayers
+    if (nextPlayerId) {
+      auction.remainingPlayers = auction.remainingPlayers.filter(
+        (rp) => rp.toString() !== nextPlayerId.toString()
+      );
+    }
+
+    // 4) Fallback — no sets configured, or every set has been walked through.
+    //    Pull from whatever's left in the generic queue so the auction doesn't
+    //    deadlock on orphaned players that weren't assigned to a set.
     if (!nextPlayerId) {
       if (auction.remainingPlayers.length === 0) {
         return res.status(400).json({ success: false, message: 'No more players remaining' });
@@ -197,12 +297,24 @@ export const nextPlayer = async (req, res, next) => {
     await auction.save();
 
     const io = req.app.get('io');
+    // If nextPlayer() auto-advanced past an empty set, tell the room BEFORE
+    // the new-player emit so clients can update the set badge / progress
+    // counter in the correct order.
+    if (setChanged) {
+      io.of('/auction').to(`auction:${tournamentId}`).emit('set-changed', {
+        tournamentId,
+        currentSet: auction.currentSet,
+        auto: true,
+      });
+    }
     io.of('/auction').to(`auction:${tournamentId}`).emit('new-player', {
       tournamentId,
       player,
       currentBid: auction.currentBid,
       timer: auction.timer,
       bidIncrement: auction.bidIncrement,
+      currentSet: auction.currentSet,
+      setChanged,
     });
 
     res.json({ success: true, data: auction });
@@ -235,11 +347,21 @@ export const placeBid = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'No current player up for auction' });
     }
 
-    const minBid = auction.currentBid + auction.bidIncrement;
-    if (amount < minBid) {
+    // Bid rule simplified: any amount strictly greater than the current bid
+    // is accepted. If no one has bid yet (opening bid for this player), the
+    // first bidder can match the base price exactly. The only real ceiling
+    // is the team's remainingPoints (checked below). The old bracket-aware
+    // minimum-increment and step-ladder rules were removed because the real
+    // auction ceiling is the team's budget, not an arbitrary step size.
+    const hasBidder = Boolean(auction.currentBidderId);
+    const meetsMin = hasBidder ? amount > auction.currentBid : amount >= auction.currentBid;
+    if (!meetsMin) {
+      const minBid = hasBidder ? auction.currentBid + 1 : auction.currentBid;
       return res.status(400).json({
         success: false,
-        message: `Bid must be at least ${minBid} pts (current: ${auction.currentBid} + increment: ${auction.bidIncrement})`,
+        message: hasBidder
+          ? `Minimum bid: ${minBid} pts`
+          : `Minimum bid: ${minBid} pts (base price)`,
       });
     }
 
@@ -265,6 +387,10 @@ export const placeBid = async (req, res, next) => {
     auction.timer = 15;
     auction.goingOnce = false;
     auction.goingTwice = false;
+    // Persist the bracket-aware increment that now applies at the NEW bid
+    // level so that a page reload between bids shows the correct step, not a
+    // stale value from the previous nextPlayer() call.
+    auction.bidIncrement = getBidIncrement(amount);
     await auction.save();
 
     await Bid.create({

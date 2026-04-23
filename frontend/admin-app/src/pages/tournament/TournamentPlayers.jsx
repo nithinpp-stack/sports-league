@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
@@ -8,18 +9,14 @@ import ViewPlayerModal from '../../components/ui/ViewPlayerModal';
 
 export default function TournamentPlayers({ tournament, id }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const [showAddPlayer, setShowAddPlayer] = useState(false);
-  const [addPlayerMode, setAddPlayerMode] = useState('existing');
   const [existingPlayerId, setExistingPlayerId] = useState('');
-  const [newPlayerForm, setNewPlayerForm] = useState({ name: '', skill: 'batsman', age: '', phone: '', address: '' });
-  const [newPlayerPhoto, setNewPlayerPhoto] = useState(null);
-  const [newPlayerPhotoPreview, setNewPlayerPhotoPreview] = useState(null);
-  const [editingPlayerId, setEditingPlayerId] = useState(null);
-  const [editPlayerForm, setEditPlayerForm] = useState({});
-  const [editPlayerPhoto, setEditPlayerPhoto] = useState(null);
-  const [editPlayerPhotoPreview, setEditPlayerPhotoPreview] = useState(null);
-  const [editPlayerCurrentPhoto, setEditPlayerCurrentPhoto] = useState(null);
+  // EditPlayerModal is self-contained — it seeds its own form state from the
+  // player object we hand in. Keeping a single `editingPlayer` in parent state
+  // is enough; the stale controlled-form props are gone.
+  const [editingPlayer, setEditingPlayer] = useState(null);
   const [viewingPlayerId, setViewingPlayerId] = useState(null);
 
   // All players in this tournament
@@ -36,7 +33,7 @@ export default function TournamentPlayers({ tournament, id }) {
   const { data: allPlayersData } = useQuery({
     queryKey: ['all-players-no-tournament'],
     queryFn: () => api.get('/players?limit=100').then((r) => r.data),
-    enabled: showAddPlayer && addPlayerMode === 'existing',
+    enabled: showAddPlayer,
   });
   const allPlayers = (Array.isArray(allPlayersData) ? allPlayersData : allPlayersData?.players ?? [])
     .filter((p) => !p.tournamentId || p.tournamentId !== id);
@@ -72,29 +69,8 @@ export default function TournamentPlayers({ tournament, id }) {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to add player'),
   });
 
-  const createNewPlayerMutation = useMutation({
-    mutationFn: (data) => api.post('/players', { ...data, tournamentId: id, status: 'available' }),
-    onSuccess: () => {
-      toast.success('Player created and added!');
-      qc.invalidateQueries(['tournament-players', id]);
-      qc.invalidateQueries(['available-players', id]);
-      setNewPlayerForm({ name: '', skill: 'batsman', age: '', phone: '', address: '' });
-      setNewPlayerPhoto(null);
-      setNewPlayerPhotoPreview(null);
-      setShowAddPlayer(false);
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to create player'),
-  });
-
-  const updatePlayerMutation = useMutation({
-    mutationFn: ({ playerId, data }) => api.put(`/players/${playerId}`, data),
-    onSuccess: () => {
-      toast.success('Player updated!');
-      qc.invalidateQueries(['tournament-players', id]);
-      setEditingPlayerId(null);
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to update player'),
-  });
+  // NB: the mutation lives inside EditPlayerModal now — parent just needs to
+  // know when the modal closes, so cache invalidation happens in the modal.
 
   return (
     <div className="bg-white rounded-xl shadow-sm p-6">
@@ -102,148 +78,53 @@ export default function TournamentPlayers({ tournament, id }) {
         <h3 className="text-lg font-semibold text-gray-700">
           Players ({tournamentPlayers.length})
         </h3>
-        <button
-          onClick={() => setShowAddPlayer((v) => !v)}
-          className="px-3 py-1.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
-        >
-          {showAddPlayer ? 'Cancel' : 'Add Player'}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* "Create New" jumps to the global Players page — the canonical,
+              sport-aware player-creation form (supports badminton shuttlers +
+              event categories). Keeping a second, skeleton form in-tournament
+              was a duplicate maintenance burden and didn't know about badminton. */}
+          <button
+            type="button"
+            onClick={() => navigate('/players')}
+            className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            + Create New Player
+          </button>
+          <button
+            onClick={() => setShowAddPlayer((v) => !v)}
+            className="px-3 py-1.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            {showAddPlayer ? 'Cancel' : 'Add Existing'}
+          </button>
+        </div>
       </div>
 
       {showAddPlayer && (
         <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-4">
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setAddPlayerMode('existing')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                addPlayerMode === 'existing' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-              }`}
+          <div className="flex items-center gap-3">
+            <Select
+              value={existingPlayerId}
+              onChange={(e) => setExistingPlayerId(e.target.value)}
+              className="flex-1"
+              placeholder="Select a player..."
             >
-              Select Existing
-            </button>
+              {allPlayers.map((p) => (
+                <option key={p._id} value={p._id}>
+                  {p.name}{p.skill ? ` — ${p.skill.replace(/[-_]/g, ' ')}` : ''}{p.tournamentId ? ' (in another tournament)' : ''}
+                </option>
+              ))}
+            </Select>
             <button
-              type="button"
-              onClick={() => setAddPlayerMode('new')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                addPlayerMode === 'new' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-              }`}
+              disabled={!existingPlayerId || addExistingPlayerMutation.isPending}
+              onClick={() => addExistingPlayerMutation.mutate(existingPlayerId)}
+              className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
             >
-              Create New
+              {addExistingPlayerMutation.isPending ? 'Adding...' : 'Add'}
             </button>
           </div>
-
-          {addPlayerMode === 'existing' && (
-            <div className="flex items-center gap-3">
-              <Select
-                value={existingPlayerId}
-                onChange={(e) => setExistingPlayerId(e.target.value)}
-                className="flex-1"
-                placeholder="Select a player..."
-              >
-                {allPlayers.map((p) => (
-                  <option key={p._id} value={p._id}>
-                    {p.name}{p.skill ? ` — ${p.skill.replace(/[-_]/g, ' ')}` : ''}{p.tournamentId ? ' (in another tournament)' : ''}
-                  </option>
-                ))}
-              </Select>
-              <button
-                disabled={!existingPlayerId || addExistingPlayerMutation.isPending}
-                onClick={() => addExistingPlayerMutation.mutate(existingPlayerId)}
-                className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
-              >
-                {addExistingPlayerMutation.isPending ? 'Adding...' : 'Add'}
-              </button>
-            </div>
-          )}
-
-          {addPlayerMode === 'new' && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <input
-                  placeholder="Name *"
-                  value={newPlayerForm.name}
-                  onChange={(e) => setNewPlayerForm({ ...newPlayerForm, name: e.target.value })}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-                />
-                <Select
-                  value={newPlayerForm.skill}
-                  onChange={(e) => setNewPlayerForm({ ...newPlayerForm, skill: e.target.value })}
-                >
-                  <option value="batsman">Batsman</option>
-                  <option value="bowler">Bowler</option>
-                  <option value="allrounder">Allrounder</option>
-                  <option value="wicketkeeper">Wicketkeeper</option>
-                  <option value="goalkeeper">Goalkeeper</option>
-                  <option value="defender">Defender</option>
-                  <option value="midfielder">Midfielder</option>
-                  <option value="forward">Forward</option>
-                </Select>
-                <input
-                  placeholder="Age"
-                  type="number"
-                  min={10}
-                  max={60}
-                  value={newPlayerForm.age}
-                  onChange={(e) => setNewPlayerForm({ ...newPlayerForm, age: e.target.value })}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <input
-                  placeholder="Phone"
-                  value={newPlayerForm.phone}
-                  onChange={(e) => setNewPlayerForm({ ...newPlayerForm, phone: e.target.value })}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-                />
-                <input
-                  placeholder="Address"
-                  value={newPlayerForm.address}
-                  onChange={(e) => setNewPlayerForm({ ...newPlayerForm, address: e.target.value })}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-                />
-                <div>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (file) {
-                        setNewPlayerPhoto(file);
-                        setNewPlayerPhotoPreview(URL.createObjectURL(file));
-                      }
-                    }}
-                    className="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
-                  />
-                  {newPlayerPhotoPreview && (
-                    <img src={newPlayerPhotoPreview} alt="Preview" className="mt-1 h-10 w-10 rounded-full object-cover border border-gray-200" />
-                  )}
-                </div>
-              </div>
-              <button
-                disabled={!newPlayerForm.name || createNewPlayerMutation.isPending}
-                onClick={async () => {
-                  const payload = { ...newPlayerForm };
-                  if (payload.age) payload.age = Number(payload.age);
-                  else delete payload.age;
-                  if (!payload.phone) delete payload.phone;
-                  if (!payload.address) delete payload.address;
-                  if (newPlayerPhoto) {
-                    try {
-                      const formData = new FormData();
-                      formData.append('photo', newPlayerPhoto);
-                      const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-                      payload.photo = uploadRes.data?.url || uploadRes.data;
-                    } catch { toast.error('Photo upload failed'); return; }
-                  }
-                  createNewPlayerMutation.mutate(payload);
-                }}
-                className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
-              >
-                {createNewPlayerMutation.isPending ? 'Creating...' : 'Create Player'}
-              </button>
-            </div>
-          )}
+          <p className="text-xs text-gray-500">
+            Need a fresh player? <button type="button" onClick={() => navigate('/players')} className="text-indigo-600 hover:underline font-medium">Create one on the Players page</button>, then add them here.
+          </p>
         </div>
       )}
 
@@ -276,17 +157,7 @@ export default function TournamentPlayers({ tournament, id }) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setEditingPlayerId(p._id);
-                      setEditPlayerForm({
-                        name: p.name || '',
-                        skill: p.skill || 'batsman',
-                        age: p.age || '',
-                        phone: p.phone || '',
-                        address: p.address || '',
-                      });
-                      setEditPlayerCurrentPhoto(p.photo || null);
-                      setEditPlayerPhoto(null);
-                      setEditPlayerPhotoPreview(null);
+                      setEditingPlayer(p);
                     }}
                     className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
                     title="Edit"
@@ -300,18 +171,12 @@ export default function TournamentPlayers({ tournament, id }) {
         </div>
 
         {/* Edit Player Modal */}
-        {editingPlayerId && (
+        {editingPlayer && (
           <EditPlayerModal
-            editingPlayerId={editingPlayerId}
-            editPlayerForm={editPlayerForm}
-            setEditPlayerForm={setEditPlayerForm}
-            editPlayerPhoto={editPlayerPhoto}
-            setEditPlayerPhoto={setEditPlayerPhoto}
-            editPlayerPhotoPreview={editPlayerPhotoPreview}
-            setEditPlayerPhotoPreview={setEditPlayerPhotoPreview}
-            editPlayerCurrentPhoto={editPlayerCurrentPhoto}
-            updatePlayerMutation={updatePlayerMutation}
-            onClose={() => setEditingPlayerId(null)}
+            player={editingPlayer}
+            sport={tournament?.sport}
+            tournamentId={id}
+            onClose={() => setEditingPlayer(null)}
           />
         )}
 

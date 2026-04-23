@@ -109,7 +109,7 @@ export default function AuctionViewer() {
                       </p>
                     )}
                     <p className="text-slate-400 dark:text-gray-500 text-xs mt-1">
-                      Min increment: <span className="text-slate-600 dark:text-gray-300 font-medium">+{bidIncrement} pts</span>
+                      Any amount above current bid accepted
                     </p>
                   </div>
                   <div className="text-center sm:text-right">

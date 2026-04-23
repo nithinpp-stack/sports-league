@@ -8,6 +8,79 @@ import StatusBadge from '../components/ui/StatusBadge';
 import Spinner from '../components/ui/Spinner';
 import { MapPin, Calendar } from '../components/ui/Icons';
 
+function TrophyIcon({ className = '' }) {
+  return (
+    <svg className={className} width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 0 1-10 0V4Z" fill="#fbbf24" stroke="#b45309" strokeWidth="1.5" strokeLinejoin="round"/>
+      <path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" stroke="#b45309" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M9 14h6v3H9z" fill="#f59e0b" stroke="#b45309" strokeWidth="1.2"/>
+    </svg>
+  );
+}
+
+const CONFETTI_COLORS = ['#facc15', '#ef4444', '#10b981', '#3b82f6', '#a855f7', '#ec4899', '#f97316', '#06b6d4'];
+const CONFETTI_PARTICLES = Array.from({ length: 34 }).map((_, i) => {
+  const spread = (Math.random() - 0.5) * Math.PI * 1.2;
+  const angle = -Math.PI / 2 + spread;
+  const velocity = 55 + Math.random() * 55;
+  const ax = Math.cos(angle) * velocity;
+  const ay = Math.sin(angle) * velocity;
+  const fx = ax + (Math.random() - 0.5) * 40;
+  const fy = 60 + Math.random() * 40;
+  const isRound = Math.random() < 0.3;
+  const size = isRound ? 4 + Math.random() * 3 : 5 + Math.random() * 4;
+  return {
+    i,
+    ax, ay, fx, fy,
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    rot: (Math.random() < 0.5 ? -1 : 1) * (Math.floor(Math.random() * 720) + 360),
+    delay: Math.random() * 0.25,
+    duration: 1.6 + Math.random() * 1.0,
+    isRound,
+    w: size,
+    h: isRound ? size : size * 1.8,
+  };
+});
+
+function Confetti() {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-visible z-10">
+      <div className="absolute top-1/2 left-1/2">
+        {CONFETTI_PARTICLES.map((p) => (
+          <span
+            key={p.i}
+            className={`block absolute ${p.isRound ? 'rounded-full' : 'rounded-[1px]'}`}
+            style={{
+              width: `${p.w}px`,
+              height: `${p.h}px`,
+              background: p.color,
+              left: 0,
+              top: 0,
+              boxShadow: `0 0 4px ${p.color}66`,
+              '--ax': `${p.ax}px`,
+              '--ay': `${p.ay}px`,
+              '--fx': `${p.fx}px`,
+              '--fy': `${p.fy}px`,
+              '--rot': `${p.rot}deg`,
+              animation: `popper-burst ${p.duration}s ${p.delay}s cubic-bezier(0.22, 0.7, 0.5, 1) forwards`,
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const confettiKeyframes = `
+@keyframes popper-burst {
+  0%   { transform: translate(0, 0) rotate(0deg) scale(0.3); opacity: 0; }
+  8%   { opacity: 1; transform: translate(calc(var(--ax) * 0.3), calc(var(--ay) * 0.3)) rotate(calc(var(--rot) * 0.2)) scale(1); }
+  40%  { transform: translate(var(--ax), var(--ay)) rotate(calc(var(--rot) * 0.55)); opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translate(var(--fx), var(--fy)) rotate(var(--rot)) scale(0.7); opacity: 0; }
+}
+`;
+
 export default function MatchDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -20,8 +93,24 @@ export default function MatchDetail() {
 
   const { data: livescoreData, refetch: refetchLive } = useQuery({
     queryKey: ['livescore', id],
-    queryFn: () => api.get(`/livescores/${id}`).then((r) => r.data),
+    queryFn: () => api.get(`/livescores/${id}`).then((r) => r.data.data || r.data),
     enabled: !!id,
+    refetchInterval: match?.status === 'live' ? 1000 : 5000, // Refetch every 1 second during live, 5 seconds otherwise
+  });
+
+  const team1PlayersId = match?.team1Id?._id || match?.team1Id;
+  const team2PlayersId = match?.team2Id?._id || match?.team2Id;
+
+  const { data: team1Players } = useQuery({
+    queryKey: ['team-players', team1PlayersId],
+    queryFn: () => api.get(`/teams/${team1PlayersId}/players`).then((r) => r.data?.players || []),
+    enabled: !!team1PlayersId,
+  });
+
+  const { data: team2Players } = useQuery({
+    queryKey: ['team-players', team2PlayersId],
+    queryFn: () => api.get(`/teams/${team2PlayersId}/players`).then((r) => r.data?.players || []),
+    enabled: !!team2PlayersId,
   });
 
   const handleSocketEvent = useCallback(() => {
@@ -37,6 +126,7 @@ export default function MatchDetail() {
     liveScoreSocket.on('innings-end', handleSocketEvent);
     liveScoreSocket.on('match-end', handleSocketEvent);
     liveScoreSocket.on('football-event', handleSocketEvent);
+    liveScoreSocket.on('game-reset', handleSocketEvent);
     return () => {
       liveScoreSocket.emit('leave-match', id);
       liveScoreSocket.off('ball-update', handleSocketEvent);
@@ -44,6 +134,7 @@ export default function MatchDetail() {
       liveScoreSocket.off('innings-end', handleSocketEvent);
       liveScoreSocket.off('match-end', handleSocketEvent);
       liveScoreSocket.off('football-event', handleSocketEvent);
+      liveScoreSocket.off('game-reset', handleSocketEvent);
       liveScoreSocket.disconnect();
     };
   }, [id, handleSocketEvent]);
@@ -51,6 +142,24 @@ export default function MatchDetail() {
   useEffect(() => {
     if (livescoreData) setLiveData(livescoreData);
   }, [livescoreData]);
+
+  const winnerIdStr = match?.result?.winner ? String(match.result.winner?._id || match.result.winner) : null;
+  const team1IdStr = match ? String(match.team1Id?._id || match.team1Id || '') : '';
+  const team2IdStr = match ? String(match.team2Id?._id || match.team2Id || '') : '';
+  const winnerSide = match?.status === 'completed' && winnerIdStr
+    ? (winnerIdStr === team1IdStr ? 'team1' : winnerIdStr === team2IdStr ? 'team2' : null)
+    : null;
+
+  const [showConfetti, setShowConfetti] = useState(false);
+  useEffect(() => {
+    if (!winnerSide) {
+      setShowConfetti(false);
+      return;
+    }
+    setShowConfetti(true);
+    const t = setTimeout(() => setShowConfetti(false), 3000);
+    return () => clearTimeout(t);
+  }, [winnerSide]);
 
   if (isLoading) {
     return <Spinner />;
@@ -64,6 +173,27 @@ export default function MatchDetail() {
   const innings = liveData?.innings || [];
   const footballData = liveData?.footballData || null;
 
+  // Normalize badmintonData.gamesWon — it may arrive as a plain object (from Map JSON
+  // serialization) or as a Mongoose Map shape depending on the response path. Expose a
+  // helper that works with both.
+  const badmintonData = liveData?.badmintonData || null;
+  const gamesWonFor = (teamId) => {
+    if (!badmintonData?.gamesWon || !teamId) return 0;
+    const gw = badmintonData.gamesWon;
+    if (typeof gw.get === 'function') return gw.get(String(teamId)) || 0;
+    return gw[String(teamId)] || 0;
+  };
+
+  // BWF rule: a game is won when a side reaches 21 with a 2-point lead, or hits 30.
+  // We only use this for display badges; actual game-end logic lives server-side.
+  const hasWonGame = (myPts, theirPts) => {
+    const mine = myPts || 0;
+    const theirs = theirPts || 0;
+    if (mine >= 30) return true;
+    if (mine >= 21 && mine - theirs >= 2) return true;
+    return false;
+  };
+
   const halfLabel = {
     not_started: 'Not Started',
     '1st': '1st Half',
@@ -74,8 +204,9 @@ export default function MatchDetail() {
 
   return (
     <div className="space-y-6">
+      <style>{confettiKeyframes}</style>
       {/* Match header */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-slate-200 dark:border-gray-700 shadow-sm">
+      <div className="relative bg-white dark:bg-gray-800 rounded-2xl p-6 border border-slate-200 dark:border-gray-700 shadow-sm">
         <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
           <StatusBadge status={match.status} />
           {match.tournamentId && (
@@ -85,11 +216,23 @@ export default function MatchDetail() {
 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-6 text-center sm:text-left">
           <div className="flex-1">
-            <p className="text-2xl font-bold text-slate-900 dark:text-white">{match.team1Id?.name || 'Team A'}</p>
+            <div className="flex items-center justify-center sm:justify-start gap-2">
+              {winnerSide === 'team1' && <TrophyIcon className="shrink-0 drop-shadow-sm" />}
+              <span className="relative inline-block">
+                {winnerSide === 'team1' && showConfetti && <Confetti />}
+                <span className="text-2xl font-bold text-slate-900 dark:text-white">{match.team1Id?.name || 'Team A'}</span>
+              </span>
+            </div>
           </div>
           <div className="text-slate-400 dark:text-gray-500 font-bold text-lg px-4">VS</div>
           <div className="flex-1 text-right">
-            <p className="text-2xl font-bold text-slate-900 dark:text-white">{match.team2Id?.name || 'Team B'}</p>
+            <div className="flex items-center justify-center sm:justify-end gap-2">
+              <span className="relative inline-block">
+                {winnerSide === 'team2' && showConfetti && <Confetti />}
+                <span className="text-2xl font-bold text-slate-900 dark:text-white">{match.team2Id?.name || 'Team B'}</span>
+              </span>
+              {winnerSide === 'team2' && <TrophyIcon className="shrink-0 drop-shadow-sm" />}
+            </div>
           </div>
         </div>
 
@@ -102,6 +245,80 @@ export default function MatchDetail() {
           <span className="flex items-center gap-1"><Calendar size={14} /> {dayjs(match.date).format('DD MMM YYYY, HH:mm')}</span>
         </div>
       </div>
+
+      {/* Players section — badminton shows only the on-court pair; other sports show full squads */}
+      {(() => {
+        // For badminton, prefer the on-court selections from the Match document.
+        // Fall back to the full team roster (legacy matches without player assignment).
+        const isBadmintonView = sport === 'badminton';
+        const onCourtT1 = Array.isArray(match.team1Players) ? match.team1Players : [];
+        const onCourtT2 = Array.isArray(match.team2Players) ? match.team2Players : [];
+        const useOnCourt = isBadmintonView && (onCourtT1.length > 0 || onCourtT2.length > 0);
+
+        const t1List = useOnCourt ? onCourtT1 : (team1Players || []);
+        const t2List = useOnCourt ? onCourtT2 : (team2Players || []);
+        if (t1List.length === 0 && t2List.length === 0) return null;
+
+        const sectionLabel = useOnCourt ? 'On court' : (isBadmintonView ? 'Squad' : 'Squad');
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[
+              { team: match.team1Id, players: t1List, accent: 'emerald' },
+              { team: match.team2Id, players: t2List, accent: 'blue' },
+            ].map(({ team, players, accent }, idx) => (
+              <div key={idx} className="bg-white dark:bg-gray-800 rounded-2xl border border-slate-200 dark:border-gray-700 overflow-hidden shadow-sm">
+                <div className={`px-6 py-4 border-b border-slate-100 dark:border-gray-700 bg-slate-50 dark:bg-gray-900/50 flex items-center justify-between`}>
+                  <div>
+                    <h3 className="text-slate-900 dark:text-white font-semibold">{team?.name || 'Team'}</h3>
+                    {useOnCourt && (
+                      <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-gray-500 mt-0.5">{sectionLabel}</p>
+                    )}
+                  </div>
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${accent === 'emerald' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>
+                    {players.length} {players.length === 1 ? 'player' : 'players'}
+                  </span>
+                </div>
+                {players.length === 0 ? (
+                  <p className="px-6 py-6 text-sm text-slate-500 dark:text-gray-400 text-center">
+                    {useOnCourt ? 'No players assigned for this match yet.' : 'No players assigned.'}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 dark:divide-gray-700">
+                    {players.map((p) => (
+                      <li
+                        key={p._id}
+                        onClick={() => navigate(`/players/${p._id}`)}
+                        className="px-6 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {p.photo ? (
+                            <img src={p.photo} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-slate-200 dark:border-gray-700" />
+                          ) : (
+                            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ${accent === 'emerald' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'}`}>
+                              {(p.name || '?').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-slate-900 dark:text-white font-semibold text-sm truncate">{p.name}</p>
+                            <p className="text-xs text-slate-500 dark:text-gray-400 capitalize">
+                              {p.skill || '-'}{p.age ? ` • ${p.age} yrs` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        {p.basePoints != null && (
+                          <span className="text-xs font-semibold text-slate-500 dark:text-gray-400 shrink-0">
+                            {p.basePoints} pts
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Cricket scorecards */}
       {sport === 'cricket' && (
@@ -434,6 +651,268 @@ export default function MatchDetail() {
                 <div className="p-8 text-center text-slate-400 dark:text-gray-500">No match data available.</div>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Badminton scorecard */}
+      {sport === 'badminton' && liveData?.badmintonData && (
+        <div className="space-y-4">
+          {/* Current Game Score */}
+          <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-8 text-white shadow-lg">
+            <p className="text-xs text-gray-400 uppercase tracking-widest mb-3">Game {liveData.badmintonData.currentGame} of 3</p>
+            <div className="grid grid-cols-3 gap-6 items-center">
+              <div className="text-center">
+                <p className="text-5xl font-black mb-2">{liveData.badmintonData.team1Points ?? 0}</p>
+                <p className="text-sm font-semibold text-gray-300">{match.team1Id?.name}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-gray-400 uppercase tracking-wider">vs</p>
+              </div>
+              <div className="text-center">
+                <p className="text-5xl font-black mb-2">{liveData.badmintonData.team2Points ?? 0}</p>
+                <p className="text-sm font-semibold text-gray-300">{match.team2Id?.name}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Match Winner - Show when match is completed */}
+          {match.status === 'completed' && match.result?.winner && (() => {
+            const winnerId = String(match.result.winner?._id || match.result.winner);
+            const team1IdStr = String(match.team1Id?._id || match.team1Id);
+            const winnerName = winnerId === team1IdStr ? match.team1Id?.name : match.team2Id?.name;
+            return (
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/30 dark:to-orange-900/30 border-2 border-amber-200 dark:border-amber-700 rounded-2xl p-6">
+                <div className="text-center">
+                  <p className="text-xs text-amber-600 dark:text-amber-400 uppercase tracking-wider font-bold mb-2">MATCH WINNER</p>
+                  <p className="text-3xl font-black text-amber-900 dark:text-amber-300 mb-2">
+                    {winnerName}
+                  </p>
+                  {match.result.summary && (
+                    <p className="text-sm text-amber-700 dark:text-amber-300">{match.result.summary}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Games Won */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-slate-200 dark:border-gray-700 text-center">
+              <p className="text-xs text-slate-400 dark:text-gray-400 uppercase tracking-wider mb-2">Games Won</p>
+              <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
+                {gamesWonFor(match.team1Id?._id)}
+              </p>
+              <p className="text-sm font-semibold text-slate-700 dark:text-gray-300 mt-1">{match.team1Id?.name}</p>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-slate-200 dark:border-gray-700 text-center">
+              <p className="text-xs text-slate-400 dark:text-gray-400 uppercase tracking-wider mb-2">Games Won</p>
+              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+                {gamesWonFor(match.team2Id?._id)}
+              </p>
+              <p className="text-sm font-semibold text-slate-700 dark:text-gray-300 mt-1">{match.team2Id?.name}</p>
+            </div>
+          </div>
+
+          {/* Match Summary Table */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-slate-200 dark:border-gray-700 overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-gray-700 bg-slate-50 dark:bg-gray-900/50">
+              <h3 className="text-slate-900 dark:text-white font-semibold">Match Summary</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100 dark:border-gray-700 bg-slate-50 dark:bg-gray-900/30">
+                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Team</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Games Won</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Current Game Points</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { teamId: match.team1Id, points: liveData.badmintonData.team1Points ?? 0, otherPoints: liveData.badmintonData.team2Points ?? 0 },
+                    { teamId: match.team2Id, points: liveData.badmintonData.team2Points ?? 0, otherPoints: liveData.badmintonData.team1Points ?? 0 },
+                  ].map(({ teamId, points, otherPoints }, rowIdx) => {
+                    const isWinner = match.status === 'completed'
+                      && String(match.result?.winner?._id || match.result?.winner) === String(teamId?._id);
+                    const wonCurrentGame = hasWonGame(points, otherPoints);
+                    return (
+                      <tr key={rowIdx} className={`${rowIdx === 0 ? 'border-b border-slate-100 dark:border-gray-700' : ''} hover:bg-slate-50 dark:hover:bg-gray-700/30 transition-colors`}>
+                        <td className="px-6 py-4 text-slate-900 dark:text-white font-semibold">{teamId?.name}</td>
+                        <td className="px-6 py-4 text-center text-slate-900 dark:text-white font-bold text-lg">
+                          {gamesWonFor(teamId?._id)}
+                        </td>
+                        <td className="px-6 py-4 text-center text-slate-900 dark:text-white font-bold">
+                          {points}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          {isWinner ? (
+                            <span className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-3 py-1 rounded-full">
+                              <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                              Match Winner
+                            </span>
+                          ) : match.status === 'completed' ? (
+                            <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-gray-700 text-slate-600 dark:text-gray-300 text-xs font-semibold px-3 py-1 rounded-full">
+                              Finished
+                            </span>
+                          ) : wonCurrentGame ? (
+                            <span className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-3 py-1 rounded-full">
+                              <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                              Game Won
+                            </span>
+                          ) : match.status === 'live' ? (
+                            <span className="inline-flex items-center gap-1 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-xs font-semibold px-3 py-1 rounded-full">
+                              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                              Playing
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 dark:text-gray-500 text-xs">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Game History */}
+          {liveData.badmintonData.gameHistory && liveData.badmintonData.gameHistory.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-slate-200 dark:border-gray-700 overflow-hidden shadow-sm">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-gray-700 bg-slate-50 dark:bg-gray-900/50">
+                <h3 className="text-slate-900 dark:text-white font-semibold">Game Results</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100 dark:border-gray-700 bg-slate-50 dark:bg-gray-900/30">
+                      <th className="px-6 py-3 text-left text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Game</th>
+                      <th className="px-6 py-3 text-center text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">{match.team1Id?.name}</th>
+                      <th className="px-6 py-3 text-center text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">{match.team2Id?.name}</th>
+                      <th className="px-6 py-3 text-center text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Winner</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {liveData.badmintonData.gameHistory.map((game, idx) => (
+                      <tr key={idx} className="border-b border-slate-100 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-700/30 transition-colors">
+                        <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white">Game {game.gameNumber}</td>
+                        <td className="px-6 py-4 text-center text-slate-900 dark:text-white font-bold">{game.team1Points}</td>
+                        <td className="px-6 py-4 text-center text-slate-900 dark:text-white font-bold">{game.team2Points}</td>
+                        <td className="px-6 py-4 text-center">
+                          {game.winner ? (
+                            <span className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-3 py-1 rounded-full">
+                              {String(game.winner?._id || game.winner) === String(match.team1Id?._id) ? match.team1Id?.name : match.team2Id?.name}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 dark:text-gray-500 text-xs">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Badminton - Completed match fallback from match.result.scores
+          (covers matches where the live-scoring doc is gone or was never created) */}
+      {sport === 'badminton' && !liveData?.badmintonData && match.status === 'completed' && Array.isArray(match.result?.scores) && match.result.scores.length > 0 && (
+        <div className="space-y-4">
+          {/* Winner banner */}
+          {match.result?.winner && (() => {
+            const winnerId = String(match.result.winner?._id || match.result.winner);
+            const t1Id = String(match.team1Id?._id || match.team1Id);
+            const winnerName = winnerId === t1Id ? match.team1Id?.name : match.team2Id?.name;
+            return (
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/30 dark:to-orange-900/30 border-2 border-amber-200 dark:border-amber-700 rounded-2xl p-6">
+                <div className="text-center">
+                  <p className="text-xs text-amber-600 dark:text-amber-400 uppercase tracking-wider font-bold mb-2">MATCH WINNER</p>
+                  <p className="text-3xl font-black text-amber-900 dark:text-amber-300 mb-2">{winnerName}</p>
+                  {match.result.summary && (
+                    <p className="text-sm text-amber-700 dark:text-amber-300">{match.result.summary}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Game-by-game scores */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-slate-200 dark:border-gray-700 overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-gray-700 bg-slate-50 dark:bg-gray-900/50">
+              <h3 className="text-slate-900 dark:text-white font-semibold">Game Results</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100 dark:border-gray-700 bg-slate-50 dark:bg-gray-900/30">
+                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Game</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">{match.team1Id?.name}</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">{match.team2Id?.name}</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Winner</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {match.result.scores.map((game, idx) => {
+                    const t1Id = String(match.team1Id?._id || match.team1Id);
+                    const winnerId = String(game.winner?._id || game.winner || '');
+                    const winnerName = winnerId
+                      ? (winnerId === t1Id ? match.team1Id?.name : match.team2Id?.name)
+                      : null;
+                    return (
+                      <tr key={idx} className="border-b border-slate-100 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-700/30 transition-colors">
+                        <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white">Game {game.gameNumber ?? idx + 1}</td>
+                        <td className="px-6 py-4 text-center text-slate-900 dark:text-white font-bold">{game.team1Points}</td>
+                        <td className="px-6 py-4 text-center text-slate-900 dark:text-white font-bold">{game.team2Points}</td>
+                        <td className="px-6 py-4 text-center">
+                          {winnerName ? (
+                            <span className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-3 py-1 rounded-full">
+                              {winnerName}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 dark:text-gray-500 text-xs">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Badminton - No data */}
+      {sport === 'badminton' && !liveData?.badmintonData && !(match.status === 'completed' && Array.isArray(match.result?.scores) && match.result.scores.length > 0) && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-slate-200 dark:border-gray-700/60 overflow-hidden shadow-sm">
+          {(match.status === 'upcoming' || match.status === 'scheduled') ? (
+            <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 flex items-center justify-center mb-5">
+                <svg className="w-7 h-7 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-slate-900 dark:text-white text-lg font-bold tracking-tight mb-2">Match Starting Soon</p>
+              <p className="text-slate-500 dark:text-gray-400 text-sm mb-6 max-w-sm">
+                This match hasn't started yet. Stay tuned for live updates!
+              </p>
+              {match.date && (
+                <div className="inline-flex items-center gap-3 bg-slate-50 dark:bg-gray-900/60 border border-slate-200 dark:border-gray-700/60 rounded-xl px-5 py-3">
+                  <div className="text-center">
+                    <p className="text-xs text-slate-400 dark:text-gray-500 uppercase tracking-wider font-medium">Scheduled</p>
+                    <p className="text-slate-900 dark:text-white font-bold text-lg mt-0.5">{dayjs(match.date).format('DD MMM YYYY')}</p>
+                    <p className="text-emerald-600 dark:text-emerald-400 font-semibold text-sm">{dayjs(match.date).format('hh:mm A')}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="p-8 text-center text-slate-400 dark:text-gray-500">Match data not available.</div>
           )}
         </div>
       )}
