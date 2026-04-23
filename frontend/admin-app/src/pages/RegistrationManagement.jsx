@@ -53,6 +53,9 @@ export default function RegistrationManagement() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-6 py-3 text-gray-600 font-semibold">Player</th>
+                <th className="text-left px-6 py-3 text-gray-600 font-semibold">Skill</th>
+                <th className="text-left px-6 py-3 text-gray-600 font-semibold">Sport</th>
+                <th className="text-left px-6 py-3 text-gray-600 font-semibold">Age</th>
                 <th className="text-left px-6 py-3 text-gray-600 font-semibold">Tournament</th>
                 <th className="text-left px-6 py-3 text-gray-600 font-semibold">Status</th>
                 <th className="text-left px-6 py-3 text-gray-600 font-semibold">Applied</th>
@@ -60,43 +63,61 @@ export default function RegistrationManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {registrations.map((r) => (
-                <tr key={r._id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 font-medium text-gray-800">{r.player?.name ?? r.playerName ?? '—'}</td>
-                  <td className="px-6 py-4 text-gray-600">{r.tournament?.name ?? '—'}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-700'}`}>
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-gray-500">
-                    {r.createdAt ? dayjs(r.createdAt).format('MMM D, YYYY') : '—'}
-                  </td>
-                  <td className="px-6 py-4">
-                    {r.status === 'pending' && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => approveMutation.mutate(r._id)}
-                          disabled={approveMutation.isPending}
-                          className="px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded hover:bg-emerald-700 transition-colors disabled:opacity-60"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => rejectMutation.mutate(r._id)}
-                          disabled={rejectMutation.isPending}
-                          className="px-3 py-1 bg-red-600 text-white text-xs font-medium rounded hover:bg-red-700 transition-colors disabled:opacity-60"
-                        >
-                          Reject
-                        </button>
+              {registrations.map((r) => {
+                const displayName = r.name || r.player?.name || r.playerName || '—';
+                const photoUrl = r.photo ? `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${r.photo}` : null;
+                return (
+                  <tr key={r._id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        {photoUrl ? (
+                          <img src={photoUrl} alt="" className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 shrink-0" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm font-bold text-gray-500 shrink-0">
+                            {displayName.charAt(0)?.toUpperCase() || '?'}
+                          </div>
+                        )}
+                        <span className="font-medium text-gray-800">{displayName}</span>
                       </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600 capitalize">{r.skill || '—'}</td>
+                    <td className="px-6 py-4 text-gray-600 capitalize">{r.sport || '—'}</td>
+                    <td className="px-6 py-4 text-gray-600">{r.age || '—'}</td>
+                    <td className="px-6 py-4 text-gray-600">{r.tournament?.name ?? r.tournamentId?.name ?? '—'}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-700'}`}>
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-gray-500">
+                      {r.createdAt ? dayjs(r.createdAt).format('MMM D, YYYY') : '—'}
+                    </td>
+                    <td className="px-6 py-4">
+                      {r.status === 'pending' && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => approveMutation.mutate(r._id)}
+                            disabled={approveMutation.isPending}
+                            className="px-3 py-1 bg-emerald-600 text-white text-xs font-medium rounded hover:bg-emerald-700 transition-colors disabled:opacity-60"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => rejectMutation.mutate(r._id)}
+                            disabled={rejectMutation.isPending}
+                            className="px-3 py-1 bg-red-600 text-white text-xs font-medium rounded hover:bg-red-700 transition-colors disabled:opacity-60"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {!registrations.length && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-400">No registrations found.</td>
+                  <td colSpan={8} className="px-6 py-8 text-center text-gray-400">No registrations found.</td>
                 </tr>
               )}
             </tbody>

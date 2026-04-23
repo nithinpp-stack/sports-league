@@ -94,7 +94,15 @@ export default function AuctionViewer() {
             {currentPlayer ? (
               <>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div>
+                  <div className="flex items-center gap-4">
+                    {currentPlayer.photo ? (
+                      <img src={`${import.meta.env.VITE_API_URL || ''}${currentPlayer.photo}`} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-gray-200 shrink-0" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-500 shrink-0">
+                        {currentPlayer.name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                    <div>
                     <p className="text-xl font-bold text-slate-900 dark:text-white">
                       {currentPlayer.name || 'Unknown Player'}
                     </p>
@@ -111,6 +119,7 @@ export default function AuctionViewer() {
                     <p className="text-slate-400 dark:text-gray-500 text-xs mt-1">
                       Any amount above current bid accepted
                     </p>
+                  </div>
                   </div>
                   <div className="text-center sm:text-right">
                     <p className="text-slate-400 dark:text-gray-500 text-xs uppercase tracking-wider font-medium">Current Bid</p>

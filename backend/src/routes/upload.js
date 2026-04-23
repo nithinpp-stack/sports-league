@@ -33,4 +33,13 @@ router.post('/', authenticate, upload.single('photo'), (req, res) => {
   res.json({ success: true, data: { url, filename: req.file.filename } });
 });
 
+// Public upload for player registration (no auth required)
+router.post('/public', upload.single('photo'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'No file uploaded' });
+  }
+  const url = `/uploads/${req.file.filename}`;
+  res.json({ success: true, data: { url, filename: req.file.filename } });
+});
+
 export default router;

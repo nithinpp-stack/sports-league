@@ -403,48 +403,62 @@ export default function AuctionControl() {
                   : 'bg-white border-transparent'
               }`}
             >
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-xs text-gray-500 uppercase tracking-wide mb-1">Current Player</h3>
-                  <p className="text-2xl font-bold text-gray-900">{currentPlayer.name ?? '—'}</p>
-                  <p className="text-sm text-gray-500 capitalize mt-0.5">
-                    {currentPlayer.skill?.replace(/_/g, ' ')}
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Base pts: <span className="font-semibold text-gray-600">{currentPlayer.basePoints ?? '—'} pts</span>
-                  </p>
+              {/* Player Profile */}
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                {/* Photo */}
+                <div className="shrink-0">
+                  {currentPlayer.photo ? (
+                    <img src={`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${currentPlayer.photo}`} alt="" className="w-24 h-24 rounded-2xl object-cover border-2 border-gray-100 shadow-md" />
+                  ) : (
+                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-emerald-100 to-gray-100 flex items-center justify-center text-3xl font-bold text-emerald-500 border-2 border-gray-100 shadow-md">
+                      {currentPlayer.name?.charAt(0)?.toUpperCase() || '?'}
+                    </div>
+                  )}
                 </div>
 
-                <div className="text-right">
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">Current Bid</p>
-                  <p className="text-3xl font-bold text-emerald-600">
-                    {auction.currentBid?.toLocaleString() ?? '—'} pts
+                {/* Info */}
+                <div className="flex-1 text-center sm:text-left">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold mb-1">Current Player</p>
+                  <p className="text-2xl font-extrabold text-gray-900 tracking-tight">{currentPlayer.name ?? '—'}</p>
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mt-2">
+                    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-full capitalize border border-emerald-200">
+                      {currentPlayer.skill?.replace(/_/g, ' ') || '—'}
+                    </span>
+                    <span className="px-2.5 py-1 bg-gray-50 text-gray-600 text-xs font-medium rounded-full border border-gray-200">
+                      Base: {currentPlayer.basePoints ?? '—'} pts
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bid */}
+                <div className="text-center sm:text-right shrink-0">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">Current Bid</p>
+                  <p className="text-4xl font-black text-emerald-600 tracking-tight mt-1">
+                    {auction.currentBid?.toLocaleString() ?? '—'}
+                    <span className="text-lg font-semibold text-gray-400 ml-1">pts</span>
                   </p>
                   {currentBidder && (
-                    <p className="text-sm text-gray-500 mt-0.5">
-                      by <span className="font-medium text-gray-700">{currentBidder.name ?? String(currentBidder)}</span>
+                    <p className="text-sm text-gray-500 mt-1">
+                      by <span className="font-semibold text-gray-800">{currentBidder.name ?? String(currentBidder)}</span>
                     </p>
                   )}
-                  <p className="text-xs text-gray-400 mt-1">
-                    Any amount above current bid accepted &middot; capped by team budget
-                  </p>
                 </div>
               </div>
 
               {/* Going once / twice visual indicator */}
               {goingStatusLabel && (
-                <div className={`mt-4 text-center py-2 rounded-lg font-bold text-lg tracking-widest animate-pulse ${goingStatusColor}`}>
+                <div className={`mt-5 text-center py-3 rounded-xl font-extrabold text-xl tracking-widest animate-pulse ${goingStatusColor}`}>
                   {goingStatusLabel}
                 </div>
               )}
 
               {/* Bid action buttons */}
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-5 flex flex-wrap gap-3 pt-5 border-t border-gray-100">
                 {!goingOnce && currentBidder && (
                   <button
                     onClick={() => controlMutation.mutate({ action: 'going-once' })}
                     disabled={controlMutation.isPending}
-                    className="px-5 py-2 bg-yellow-400 text-yellow-900 text-sm font-bold rounded-lg hover:bg-yellow-500 transition-colors disabled:opacity-60"
+                    className="px-6 py-2.5 bg-amber-400 text-amber-900 text-sm font-bold rounded-xl hover:bg-amber-500 transition-colors disabled:opacity-60 shadow-sm"
                   >
                     Going Once!
                   </button>
@@ -453,7 +467,7 @@ export default function AuctionControl() {
                   <button
                     onClick={() => controlMutation.mutate({ action: 'going-twice' })}
                     disabled={controlMutation.isPending}
-                    className="px-5 py-2 bg-orange-500 text-white text-sm font-bold rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-60"
+                    className="px-6 py-2.5 bg-orange-500 text-white text-sm font-bold rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-60 shadow-sm"
                   >
                     Going Twice!
                   </button>
@@ -462,7 +476,7 @@ export default function AuctionControl() {
                   <button
                     onClick={() => controlMutation.mutate({ action: 'sell' })}
                     disabled={controlMutation.isPending}
-                    className="px-5 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-60"
+                    className="px-6 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-60 shadow-sm"
                   >
                     SOLD!
                   </button>
@@ -470,7 +484,7 @@ export default function AuctionControl() {
                 <button
                   onClick={() => controlMutation.mutate({ action: 'unsold' })}
                   disabled={controlMutation.isPending}
-                  className="px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-60"
+                  className="px-6 py-2.5 bg-red-600 text-white text-sm font-medium rounded-xl hover:bg-red-700 transition-colors disabled:opacity-60 shadow-sm"
                 >
                   Unsold
                 </button>

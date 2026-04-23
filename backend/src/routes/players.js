@@ -8,6 +8,7 @@ import {
   createPlayer,
   updatePlayer,
   registerForTournament,
+  publicRegister,
 } from '../controllers/playerController.js';
 import {
   createPlayerValidator,
@@ -21,6 +22,7 @@ import { authenticate, authorize, permit } from '../middleware/auth.js';
 const router = Router();
 
 // Public routes
+router.post('/public-register', publicRegister);
 router.get('/', listPlayersValidator, validate, listPlayers);
 router.get('/:id/stats', getPlayerStats);
 router.get('/:id/matches', getPlayerMatches);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import api from '../services/api';
@@ -6,11 +6,37 @@ import dayjs from 'dayjs';
 import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
 import { MapPin, ArrowRight, Activity, Trophy, Users, Zap } from '../components/ui/Icons';
+import { useAds, AdPopup, AdBanner, AdStrip } from '../components/AdComponents';
 
 const sports = ['all', 'cricket', 'football', 'badminton'];
 
+const SPORT_IMAGES = {
+  cricket: 'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=600&h=200&fit=crop&crop=center',
+  football: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=600&h=200&fit=crop&crop=center',
+  badminton: 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=600&h=200&fit=crop&crop=center',
+};
+const getSportImage = (sport) => SPORT_IMAGES[sport] || SPORT_IMAGES.cricket;
+
 export default function Home() {
   const [sportFilter, setSportFilter] = useState('all');
+  const [showAdPopup, setShowAdPopup] = useState(false);
+  const [currentPopupAd, setCurrentPopupAd] = useState(null);
+
+  // Fetch ads from API
+  const popupAds = useAds('popup');
+  const bannerAds = useAds('banner');
+  const stripAds = useAds('strip');
+
+  useEffect(() => {
+    if (!popupAds.length) return;
+    // Rotate popups: track last shown index in localStorage
+    const lastIndex = parseInt(localStorage.getItem('popup_ad_index') || '0', 10);
+    const nextIndex = lastIndex >= popupAds.length ? 0 : lastIndex;
+    setCurrentPopupAd(popupAds[nextIndex]);
+    localStorage.setItem('popup_ad_index', String((nextIndex + 1) % popupAds.length));
+    const timer = setTimeout(() => setShowAdPopup(true), 1500);
+    return () => clearTimeout(timer);
+  }, [popupAds]);
 
   const { data: liveMatches, isLoading: loadingLive } = useQuery({
     queryKey: ['liveMatches'],
@@ -31,14 +57,22 @@ export default function Home() {
   return (
     <div className="space-y-12">
 
+      {/* Ad Popup — rotates through all popup ads on each reload */}
+      {showAdPopup && currentPopupAd && <AdPopup ad={currentPopupAd} onClose={() => setShowAdPopup(false)} />}
+
       {/* Hero */}
       <section className="relative overflow-hidden rounded-2xl">
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900 dark:from-gray-950 dark:via-gray-900 dark:to-emerald-950" />
+        <img
+          src="https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=1400&h=600&fit=crop&crop=center"
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-900/90 via-emerald-950/85 to-slate-900/90" />
         <div
-          className="absolute inset-0 opacity-[0.07]"
+          className="absolute inset-0 opacity-[0.05]"
           style={{ backgroundImage: 'radial-gradient(circle, #6ee7b7 1px, transparent 1px)', backgroundSize: '28px 28px' }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent dark:from-gray-950/80" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent" />
 
         <div className="relative z-10 text-center py-20 sm:py-28 px-6">
           <div className="inline-flex items-center gap-2 bg-white/10 border border-white/10 text-emerald-300 text-xs font-semibold px-4 py-1.5 rounded-full mb-6 tracking-widest uppercase">
@@ -117,27 +151,34 @@ export default function Home() {
               <Link
                 key={match._id}
                 to={`/matches/${match._id}`}
-                className="group bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-800 hover:border-emerald-400 dark:hover:border-emerald-700 rounded-2xl p-6 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+                className="group bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-800 hover:border-emerald-400 dark:hover:border-emerald-700 rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <StatusBadge status="live" />
-                  <span className="text-xs text-slate-500 dark:text-gray-400 font-medium bg-slate-50 dark:bg-gray-800 px-2.5 py-1 rounded-full">
-                    {match.tournamentId?.name || 'Tournament'}
-                  </span>
+                <div className="relative h-24 overflow-hidden">
+                  <img src={getSportImage(match.tournamentId?.sport)} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                  <div className="absolute bottom-2 left-3 right-3 flex items-end justify-between">
+                    <StatusBadge status="live" />
+                    <span className="text-[10px] text-white/80 font-medium">{match.tournamentId?.name || 'Tournament'}</span>
+                  </div>
                 </div>
-                <p className="font-bold text-slate-900 dark:text-white text-base leading-snug group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
-                  {match.team1Id?.name || 'Team A'}{' '}
-                  <span className="text-slate-300 dark:text-gray-600 font-normal">vs</span>{' '}
-                  {match.team2Id?.name || 'Team B'}
-                </p>
-                {match.result && (
-                  <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-3 font-medium">{match.result}</p>
-                )}
+                <div className="p-5">
+                  <p className="font-bold text-slate-900 dark:text-white text-base leading-snug group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
+                    {match.team1Id?.name || 'Team A'}{' '}
+                    <span className="text-slate-300 dark:text-gray-600 font-normal">vs</span>{' '}
+                    {match.team2Id?.name || 'Team B'}
+                  </p>
+                  {match.result && (
+                    <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-2 font-medium">{match.result}</p>
+                  )}
+                </div>
               </Link>
             ))}
           </div>
         )}
       </section>
+
+      {/* Ad Banner — from API */}
+      {bannerAds[0] && <AdBanner ad={bannerAds[0]} />}
 
       {/* Tournaments */}
       <section>
@@ -165,12 +206,17 @@ export default function Home() {
               <Link
                 key={t._id}
                 to={`/tournaments/${t._id}`}
-                className="group bg-white dark:bg-gray-900 rounded-2xl p-6 border border-slate-200 dark:border-gray-800 hover:border-emerald-400 dark:hover:border-emerald-700 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+                className="group bg-white dark:bg-gray-900 rounded-2xl overflow-hidden border border-slate-200 dark:border-gray-800 hover:border-emerald-400 dark:hover:border-emerald-700 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
               >
-                <div className="flex justify-between items-start mb-4">
-                  <StatusBadge status={t.status} />
-                  <span className="text-xs text-slate-500 dark:text-gray-400 font-medium bg-slate-50 dark:bg-gray-800 px-2.5 py-1 rounded-full capitalize">{t.format}</span>
+                <div className="relative h-28 overflow-hidden">
+                  <img src={getSportImage(t.sport)} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                  <div className="absolute bottom-2 left-3 right-3 flex items-end justify-between">
+                    <StatusBadge status={t.status} />
+                    <span className="text-[10px] text-white/80 font-medium capitalize">{t.format}</span>
+                  </div>
                 </div>
+                <div className="p-5">
                 <h3 className="font-bold text-slate-900 dark:text-white mb-2 text-lg leading-snug group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">{t.name}</h3>
                 {t.location && (
                   <p className="text-sm text-slate-500 dark:text-gray-400 flex items-center gap-1.5">
@@ -181,6 +227,7 @@ export default function Home() {
                   <ArrowRight size={14} className="text-slate-900 dark:text-gray-300" />
                   {dayjs(t.startDate).format('DD MMM YYYY')}
                 </p>
+                </div>
               </Link>
             ))}
           </div>

@@ -12,6 +12,7 @@ import {
   FiChevronRight,
   FiKey,
   FiDollarSign,
+  FiMonitor,
 } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -27,6 +28,7 @@ const navItems = [
   { to: '/players', label: 'Players', icon: FiUser },
   { to: '/registrations', label: 'Registrations', icon: FiClipboard },
   { to: '/roles', label: 'Roles', icon: FiKey },
+  { to: '/ads', label: 'Ads', icon: FiMonitor },
 ];
 
 const MANAGER_ROLES = ['manager', 'team_owner'];
@@ -81,6 +83,7 @@ export default function Sidebar() {
         if (item.to === '/users') return hasPerm('admins.view');
         if (item.to === '/registrations') return hasPerm('registrations.view');
         if (item.to === '/roles') return hasPerm('roles.view');
+        if (item.to === '/ads') return hasPerm('ads.view');
         return true;
       });
 

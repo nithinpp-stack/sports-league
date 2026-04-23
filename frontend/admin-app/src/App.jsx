@@ -21,6 +21,7 @@ import AuctionControl from './pages/AuctionControl';
 import AuctionBidding from './pages/AuctionBidding';
 import RoleManagement from './pages/RoleManagement';
 import ManagerListing from './pages/ManagerListing';
+import AdsManagement from './pages/AdsManagement';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +55,7 @@ export default function App() {
                 <Route path="/auctions/:tournamentId/bid" element={<AuctionBidding />} />
                 <Route path="/roles" element={<RoleManagement />} />
                 <Route path="/roles/:id" element={<RoleManagement />} />
+                <Route path="/ads" element={<AdsManagement />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

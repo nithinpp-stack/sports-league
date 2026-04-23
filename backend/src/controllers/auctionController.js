@@ -18,9 +18,9 @@ export const getAuction = async (req, res, next) => {
     // UI can render the auction history and per-team squad roster without
     // needing a second round-trip per sale.
     const auction = await Auction.findOne({ tournamentId: req.params.tournamentId })
-      .populate('currentPlayerId', 'name skill basePoints')
+      .populate('currentPlayerId', 'name skill basePoints photo')
       .populate('currentBidderId', 'name')
-      .populate('soldPlayers.playerId', 'name skill basePoints')
+      .populate('soldPlayers.playerId', 'name skill basePoints photo')
       .populate('soldPlayers.teamId', 'name');
     if (!auction) {
       return res.status(404).json({ success: false, message: 'Auction not found' });

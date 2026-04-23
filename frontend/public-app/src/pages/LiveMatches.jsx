@@ -6,6 +6,14 @@ import { Activity, MapPin } from '../components/ui/Icons';
 import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
 import Spinner from '../components/ui/Spinner';
+import { useAds, AdBanner, AdStrip } from '../components/AdComponents';
+
+const SPORT_IMAGES = {
+  cricket: 'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=600&h=200&fit=crop&crop=center',
+  football: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=600&h=200&fit=crop&crop=center',
+  badminton: 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=600&h=200&fit=crop&crop=center',
+};
+const getSportImage = (sport) => SPORT_IMAGES[sport] || SPORT_IMAGES.cricket;
 
 export default function LiveMatches() {
   const { data, isLoading } = useQuery({
@@ -14,6 +22,8 @@ export default function LiveMatches() {
     refetchInterval: 10000,
   });
 
+  const bannerAds = useAds('banner');
+  const stripAds = useAds('strip');
   const matches = data?.matches || [];
 
   return (
@@ -26,6 +36,9 @@ export default function LiveMatches() {
         </span>
       </div>
 
+      {/* Ad Banner */}
+      {bannerAds[0] && <div className="mb-8"><AdBanner ad={bannerAds[0]} /></div>}
+
       {isLoading ? (
         <Spinner />
       ) : matches.length === 0 ? (
@@ -36,7 +49,7 @@ export default function LiveMatches() {
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {matches.map((m) => {
+          {matches.map((m, mIdx) => {
             const sport = m.tournamentId?.sport || 'cricket';
             const ls = m.liveScore || {};
 
@@ -94,20 +107,26 @@ export default function LiveMatches() {
             }
 
             return (
+              <React.Fragment key={m._id}>
               <Link
-                key={m._id}
                 to={`/matches/${m._id}`}
-                className="group bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-800 rounded-xl p-5 hover:border-emerald-300 dark:hover:border-emerald-800 hover:shadow-md transition-all duration-200"
+                className="group bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-800 rounded-xl overflow-hidden hover:border-emerald-300 dark:hover:border-emerald-800 hover:shadow-md transition-all duration-200"
               >
-                {/* LIVE badge + tournament */}
-                <div className="flex items-center justify-between gap-2 mb-4">
-                  <StatusBadge status="live" />
-                  {m.tournamentId && (
-                    <span className="text-xs text-slate-500 dark:text-gray-400 truncate font-medium">
-                      {m.tournamentId?.name || m.tournamentId}
-                    </span>
-                  )}
+                {/* Sport image header */}
+                <div className="relative h-20 overflow-hidden">
+                  <img src={getSportImage(m.tournamentId?.sport || sport)} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                  <div className="absolute bottom-2 left-3 right-3 flex items-end justify-between">
+                    <StatusBadge status="live" />
+                    {m.tournamentId && (
+                      <span className="text-[10px] text-white/80 font-medium truncate">
+                        {m.tournamentId?.name || m.tournamentId}
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                <div className="p-5">
 
                 {/* Teams + badminton category */}
                 <div className="space-y-1">
@@ -141,7 +160,15 @@ export default function LiveMatches() {
                     {m.venue}
                   </p>
                 )}
+                </div>
               </Link>
+              {/* Ad strip after every 3rd match — rotates */}
+              {(mIdx + 1) % 3 === 0 && mIdx < matches.length - 1 && stripAds.length > 0 && (
+                <div className="sm:col-span-2 lg:col-span-3 py-1">
+                  <AdStrip ad={stripAds[Math.floor((mIdx + 1) / 3 - 1) % stripAds.length]} />
+                </div>
+              )}
+              </React.Fragment>
             );
           })}
         </div>

@@ -69,21 +69,29 @@ export const reviewRegistration = async (req, res, next) => {
     }
 
     if (status === 'approved') {
-      const user = await User.findById(registration.playerId);
+      const user = registration.playerId ? await User.findById(registration.playerId) : null;
       const tournament = await Tournament.findById(registration.tournamentId);
-      const sport = tournament?.sport || 'cricket';
+      const sport = registration.sport || tournament?.sport || 'cricket';
       const defaultSkill = sport === 'football' ? 'midfielder' : 'batsman';
 
-      const existingPlayer = await Player.findOne({ userId: registration.playerId, tournamentId: registration.tournamentId });
+      const playerQuery = registration.playerId
+        ? { userId: registration.playerId, tournamentId: registration.tournamentId }
+        : { name: registration.name, tournamentId: registration.tournamentId };
+      const existingPlayer = await Player.findOne(playerQuery);
       if (!existingPlayer) {
         await Player.create({
-          name: user.name,
-          userId: registration.playerId,
+          name: registration.name || user?.name || 'Unknown',
+          ...(registration.playerId && { userId: registration.playerId }),
           tournamentId: registration.tournamentId,
           sport,
-          skill: defaultSkill,
+          skill: registration.skill || defaultSkill,
           status: 'available',
-          ...(user.phone && { phone: user.phone }),
+          ...(registration.photo && { photo: registration.photo }),
+          ...(registration.age && { age: registration.age }),
+          ...(registration.phone && { phone: registration.phone }),
+          ...(!registration.phone && user?.phone && { phone: user.phone }),
+          ...(registration.battingStyle && { battingStyle: registration.battingStyle }),
+          ...(registration.bowlingStyle && { bowlingStyle: registration.bowlingStyle }),
         });
       }
     }

@@ -355,7 +355,14 @@ export default function AuctionBidding() {
               <div className="w-full max-w-lg mx-auto text-center space-y-6">
                 {/* Player Card */}
                 <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-6 backdrop-blur-sm">
-                  <div className="flex items-center justify-center gap-3 mb-1">
+                  <div className="flex flex-col items-center gap-3 mb-1">
+                    {currentPlayer.photo ? (
+                      <img src={`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${currentPlayer.photo}`} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-gray-200 shrink-0" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-500 shrink-0">
+                        {currentPlayer.name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                    )}
                     {currentPlayer.skill && (
                       <span className="bg-indigo-600/30 text-indigo-300 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider border border-indigo-500/30">
                         {currentPlayer.skill}
@@ -572,7 +579,18 @@ export default function AuctionBidding() {
                           className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors"
                         >
                           <td className="py-2.5 pr-3 text-gray-500">{i + 1}</td>
-                          <td className="py-2.5 pr-3 text-white font-medium">{p.name || '—'}</td>
+                          <td className="py-2.5 pr-3">
+                            <div className="flex items-center gap-2">
+                              {p.photo ? (
+                                <img src={`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${p.photo}`} alt="" className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 shrink-0" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm font-bold text-gray-500 shrink-0">
+                                  {p.name?.charAt(0)?.toUpperCase() || '?'}
+                                </div>
+                              )}
+                              <span className="text-white font-medium">{p.name || '—'}</span>
+                            </div>
+                          </td>
                           <td className="py-2.5 pr-3">
                             {p.skill ? (
                               <span className="bg-indigo-600/20 text-indigo-300 text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider border border-indigo-500/20">
@@ -636,6 +654,14 @@ export default function AuctionBidding() {
                           }`}
                         >
                           <td className="py-2.5 pr-3">
+                            <div className="flex items-center gap-2">
+                              {p.photo ? (
+                                <img src={`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${p.photo}`} alt="" className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 shrink-0" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm font-bold text-gray-500 shrink-0">
+                                  {p.name?.charAt(0)?.toUpperCase() || '?'}
+                                </div>
+                              )}
                             <span className={isMine ? 'text-emerald-300 font-medium' : 'text-white font-medium'}>
                               {p.name || '—'}
                             </span>
@@ -644,6 +670,7 @@ export default function AuctionBidding() {
                                 {p.skill}
                               </span>
                             )}
+                            </div>
                           </td>
                           <td className="py-2.5 pr-3 text-gray-300">
                             {t.name || '—'}

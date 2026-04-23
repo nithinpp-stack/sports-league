@@ -5,6 +5,7 @@ import api from '../services/api';
 import dayjs from 'dayjs';
 import Spinner from '../components/ui/Spinner';
 import { Trophy, Calendar } from '../components/ui/Icons';
+import { useAds, AdStrip, AdInline } from '../components/AdComponents';
 
 function StatCard({ label, value, accent = false }) {
   return (
@@ -47,6 +48,9 @@ export default function PlayerProfile() {
     queryFn: () => api.get(`/players/${id}/achievements`).then((r) => r.data),
     enabled: !!id,
   });
+
+  const stripAds = useAds('strip');
+  const inlineAds = useAds('inline');
 
   const matchHistory = matchHistoryData || [];
 
@@ -231,6 +235,9 @@ export default function PlayerProfile() {
           ))}
         </div>
       </div>
+
+      {/* Ad Strip */}
+      {stripAds[0] && <AdStrip ad={stripAds[0]} />}
 
       {/* Achievements */}
       {totalAwards > 0 && (
@@ -516,6 +523,9 @@ export default function PlayerProfile() {
           </div>
         </div>
       )}
+
+      {/* Ad Inline */}
+      {inlineAds[0] && <AdInline ad={inlineAds[0]} />}
     </div>
   );
 }

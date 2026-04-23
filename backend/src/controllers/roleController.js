@@ -46,6 +46,11 @@ const PERMISSION_SCHEMA = [
     { key: 'auctions.manage', label: 'Manage' },
     { key: 'auctions.bid', label: 'Bid' },
   ]},
+  { menu: 'Ads', key: 'ads.view', children: [
+    { key: 'ads.create', label: 'Create' },
+    { key: 'ads.edit', label: 'Edit' },
+    { key: 'ads.delete', label: 'Delete' },
+  ]},
 ];
 
 export const getPermissionSchema = (req, res) => {

@@ -20,6 +20,7 @@ import dashboardRoutes from './routes/dashboard.js';
 import registrationRoutes from './routes/registrations.js';
 import uploadRoutes from './routes/upload.js';
 import managerRoutes from './routes/managers.js';
+import adsRoutes from './routes/ads.js';
 
 const app = express();
 
@@ -99,6 +100,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/registrations', registrationRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/managers', managerRoutes);
+app.use('/api/ads', adsRoutes);
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));

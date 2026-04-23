@@ -47,7 +47,7 @@ export default function TournamentDetail() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: (status) => api.patch(`/tournaments/${id}/status`, { status }),
+    mutationFn: (status) => api.put(`/tournaments/${id}/status`, { status }),
     onSuccess: () => {
       toast.success('Status updated!');
       qc.invalidateQueries(['tournament', id]);

@@ -18,7 +18,8 @@ import {
 
 const router = Router();
 
-router.get('/:tournamentId', authenticate, getAuction);
+// Public — anyone can view the auction (spectators, audience)
+router.get('/:tournamentId', getAuction);
 router.post('/:tournamentId/start', authenticate, permit('auctions.manage'), startAuction);
 router.post('/:tournamentId/pause', authenticate, permit('auctions.manage'), pauseAuction);
 router.post('/:tournamentId/resume', authenticate, permit('auctions.manage'), resumeAuction);

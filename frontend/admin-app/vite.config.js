@@ -8,6 +8,7 @@ export default defineConfig({
     port: 3001,
     proxy: {
       '/api': 'http://localhost:5000',
+      '/uploads': 'http://localhost:5000',
       '/socket.io': { target: 'http://localhost:5000', ws: true },
     },
   },

@@ -311,6 +311,39 @@ export const getPlayerMatches = async (req, res, next) => {
   }
 };
 
+export const publicRegister = async (req, res, next) => {
+  try {
+    const { name, tournamentId, skill, age, phone, sport, photo, battingStyle, bowlingStyle } = req.body;
+
+    if (!name || !tournamentId) {
+      return res.status(400).json({ success: false, message: 'Name and tournament are required' });
+    }
+
+    // Check for duplicate registration by name + tournament
+    const existing = await Registration.findOne({ name: name.trim(), tournamentId, status: { $ne: 'rejected' } });
+    if (existing) {
+      return res.status(400).json({ success: false, message: 'Already registered for this tournament' });
+    }
+
+    const registration = await Registration.create({
+      name: name.trim(),
+      tournamentId,
+      skill,
+      age: age ? Number(age) : undefined,
+      phone,
+      sport,
+      photo,
+      battingStyle,
+      bowlingStyle,
+      status: 'pending',
+    });
+
+    return res.status(201).json({ success: true, data: { registration }, message: 'Registration submitted! Awaiting admin approval.' });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // GET /players/:id/achievements — award counts and details
 export const getPlayerAchievements = async (req, res, next) => {
   try {

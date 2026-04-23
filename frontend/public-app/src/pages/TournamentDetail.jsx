@@ -9,6 +9,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import Spinner from '../components/ui/Spinner';
 import TournamentBracket from '../components/TournamentBracket';
 import { MapPin, Calendar } from '../components/ui/Icons';
+import { useAds, AdStrip } from '../components/AdComponents';
 
 const BASE_TABS = ['Overview', 'Standings', 'Matches', 'Teams'];
 // Knockout-style badminton formats — these tournaments don't have a league
@@ -64,6 +65,12 @@ export default function TournamentDetail() {
   const [activeTab, setActiveTab] = useState('Overview');
   const [registered, setRegistered] = useState(false);
   const [activeCategory, setActiveCategory] = useState('all');
+  const [showRegForm, setShowRegForm] = useState(false);
+  const [regForm, setRegForm] = useState({ name: '', skill: '', age: '', phone: '' });
+  const [regUploading, setRegUploading] = useState(false);
+  const [regPhotoPreview, setRegPhotoPreview] = useState(null);
+  const [regPhoto, setRegPhoto] = useState(null);
+  const [regSubmitting, setRegSubmitting] = useState(false);
 
   const { data: tournament, isLoading: tLoading } = useQuery({
     queryKey: ['tournament', id],
@@ -110,6 +117,19 @@ export default function TournamentDetail() {
     enabled: !!id && tournament?.sport === 'badminton',
   });
 
+  const { data: auctionData } = useQuery({
+    queryKey: ['auction-check', id],
+    queryFn: async () => {
+      try {
+        const r = await api.get(`/auctions/${id}`);
+        return r.data?.auction || r.data;
+      } catch { return null; }
+    },
+    enabled: !!id,
+    retry: false,
+  });
+  const hasAuction = !!auctionData;
+
   const registerMutation = useMutation({
     mutationFn: () => api.post('/players/register-tournament', { tournamentId: id }),
     onSuccess: () => {
@@ -137,7 +157,62 @@ export default function TournamentDetail() {
     }
     return map;
   }, [players]);
-  const canRegister = user?.role === 'player' && (tournament?.status === 'registration' || tournament?.status === 'active');
+  const canRegister = tournament?.status === 'draft' || tournament?.status === 'registration' || tournament?.status === 'active';
+
+  const skillOptions = (() => {
+    const s = tournament?.sport;
+    if (s === 'football') return ['goalkeeper', 'defender', 'midfielder', 'forward'];
+    if (s === 'badminton') return ['shuttler'];
+    return ['batsman', 'bowler', 'allrounder', 'wicketkeeper'];
+  })();
+
+  const handleRegPhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRegPhotoPreview(URL.createObjectURL(file));
+    setRegPhoto(file);
+  };
+
+  const handleRegSubmit = async (e) => {
+    e.preventDefault();
+    if (!regForm.name.trim()) { toast.error('Name is required'); return; }
+    setRegSubmitting(true);
+    try {
+      let photoUrl = null;
+      if (regPhoto) {
+        setRegUploading(true);
+        const formData = new FormData();
+        formData.append('photo', regPhoto);
+        try {
+          const uploadRes = await api.post('/upload/public', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+          photoUrl = uploadRes.data?.data?.url || uploadRes.data?.url || uploadRes.data;
+        } catch {
+          toast.error('Photo upload failed');
+        }
+        setRegUploading(false);
+      }
+      await api.post('/players/public-register', {
+        name: regForm.name.trim(),
+        tournamentId: id,
+        skill: regForm.skill || undefined,
+        age: regForm.age || undefined,
+        phone: regForm.phone || undefined,
+        sport: tournament?.sport || undefined,
+        photo: photoUrl || undefined,
+      });
+      setRegistered(true);
+      setShowRegForm(false);
+      setRegForm({ name: '', skill: '', age: '', phone: '' });
+      setRegPhoto(null);
+      setRegPhotoPreview(null);
+      toast.success('Registration submitted! Awaiting admin approval.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Registration failed');
+    } finally {
+      setRegSubmitting(false);
+    }
+  };
+  const stripAds = useAds('strip');
 
   if (tLoading) {
     return <Spinner />;
@@ -152,19 +227,58 @@ export default function TournamentDetail() {
 
   return (
     <div>
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-slate-200 dark:border-gray-700 mb-6 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">{tournament.name}</h1>
-            <div className="flex flex-wrap gap-3 text-sm text-slate-500 dark:text-gray-400">
-              {tournament.format && <span className="capitalize">Format: {tournament.format}</span>}
-              {tournament.location && <span className="flex items-center gap-1"><MapPin size={14} /> {tournament.location}</span>}
-              {tournament.startDate && <span className="flex items-center gap-1"><Calendar size={14} /> {dayjs(tournament.startDate).format('DD MMM YYYY')}</span>}
+      {/* Hero Header with Sport-specific Background Image */}
+      <div className="relative rounded-2xl overflow-hidden mb-6">
+        <img
+          src={
+            sport === 'football' ? 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&h=400&fit=crop&crop=center'
+            : sport === 'badminton' ? 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=1200&h=400&fit=crop&crop=center'
+            : 'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=1200&h=400&fit=crop&crop=center'
+          }
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-900/85 via-slate-900/70 to-slate-900/50 dark:from-gray-950/90 dark:via-gray-950/75 dark:to-gray-950/60" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent" />
+
+        <div className="relative z-10 p-8 sm:p-10 py-28 sm:py-40">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <StatusBadge status={tournament.status} />
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white mt-3 mb-2 tracking-tight">{tournament.name}</h1>
+              <div className="flex flex-wrap gap-4 text-sm text-slate-300">
+                {tournament.format && <span className="capitalize flex items-center gap-1.5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{tournament.format}</span>}
+                {tournament.location && <span className="flex items-center gap-1.5"><MapPin size={14} /> {tournament.location}</span>}
+                {tournament.startDate && <span className="flex items-center gap-1.5"><Calendar size={14} /> {dayjs(tournament.startDate).format('DD MMM YYYY')}</span>}
+                {tournament.sport && <span className="capitalize flex items-center gap-1.5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5C7 4 9 8 9 8s2-4 4.5-4a2.5 2.5 0 0 1 0 5H12"/><path d="M6 9h12l-1.5 9H7.5L6 9z"/></svg>{tournament.sport}</span>}
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-white">
+              <div className="text-right">
+                <p className="text-3xl font-black">{teams.length}</p>
+                <p className="text-xs text-slate-300 font-medium">Teams</p>
+              </div>
+              <div className="w-px h-10 bg-white/20" />
+              <div className="text-right">
+                <p className="text-3xl font-black">{matches.length}</p>
+                <p className="text-xs text-slate-300 font-medium">Matches</p>
+              </div>
+              <div className="w-px h-10 bg-white/20" />
+              {hasAuction && (
+                <Link
+                  to={`/auctions/${id}`}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-white/15 hover:bg-white/25 backdrop-blur-sm border border-white/20 text-white text-sm font-semibold rounded-xl transition-all"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  Auction
+                </Link>
+              )}
             </div>
           </div>
-          <StatusBadge status={tournament.status} />
         </div>
+
+        {/* Ad Strip */}
+        {stripAds[0] && <div className="relative z-10"><AdStrip ad={stripAds[0]} /></div>}
       </div>
 
       {/* Tabs */}
@@ -200,13 +314,105 @@ export default function TournamentDetail() {
                 </button>
               ) : (
                 <button
-                  onClick={() => registerMutation.mutate()}
-                  disabled={registerMutation.isPending}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60"
+                  onClick={() => setShowRegForm(true)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors"
                 >
-                  {registerMutation.isPending ? 'Registering...' : 'Register'}
+                  Register
                 </button>
               )}
+            </div>
+          )}
+
+          {/* Registration Form Modal */}
+          {showRegForm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowRegForm(false)}>
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Register for Tournament</h3>
+                  <button onClick={() => setShowRegForm(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-gray-300">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+                <form onSubmit={handleRegSubmit} className="space-y-4">
+                  {/* Photo */}
+                  <div className="flex flex-col items-center">
+                    <label className="cursor-pointer group">
+                      {regPhotoPreview ? (
+                        <img src={regPhotoPreview} alt="" className="w-20 h-20 rounded-full object-cover border-2 border-emerald-300" />
+                      ) : (
+                        <div className="w-20 h-20 rounded-full bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center group-hover:border-emerald-400 transition-colors">
+                          <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        </div>
+                      )}
+                      <input type="file" accept="image/*" className="hidden" onChange={handleRegPhotoChange} />
+                    </label>
+                    <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">Tap to add photo</p>
+                  </div>
+
+                  {/* Name */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={regForm.name}
+                      onChange={(e) => setRegForm((f) => ({ ...f, name: e.target.value }))}
+                      className="w-full border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder="Your full name"
+                    />
+                  </div>
+
+                  {/* Skill */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Skill / Position</label>
+                    <select
+                      value={regForm.skill}
+                      onChange={(e) => setRegForm((f) => ({ ...f, skill: e.target.value }))}
+                      className="w-full border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="">Select skill</option>
+                      {skillOptions.map((s) => (
+                        <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Age */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Age</label>
+                    <input
+                      type="number"
+                      value={regForm.age}
+                      onChange={(e) => setRegForm((f) => ({ ...f, age: e.target.value }))}
+                      className="w-full border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder="Your age"
+                      min="5"
+                      max="100"
+                    />
+                  </div>
+
+                  {/* Phone */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Phone</label>
+                    <input
+                      type="text"
+                      value={regForm.phone}
+                      onChange={(e) => setRegForm((f) => ({ ...f, phone: e.target.value }))}
+                      className="w-full border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder="Your phone number"
+                    />
+                  </div>
+
+                  {/* Submit */}
+                  <button
+                    type="submit"
+                    disabled={regSubmitting || regUploading}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-60"
+                  >
+                    {regUploading ? 'Uploading photo...' : regSubmitting ? 'Submitting...' : 'Submit Registration'}
+                  </button>
+                </form>
+              </div>
             </div>
           )}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -222,6 +428,10 @@ export default function TournamentDetail() {
               </div>
             ))}
           </div>
+
+          {/* Ad Strip */}
+          {stripAds[0] && <AdStrip ad={stripAds[0]} />}
+
         </div>
       )}
 
