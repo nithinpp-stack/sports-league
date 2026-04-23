@@ -18,7 +18,11 @@ const DEFAULT_SPORT_IMAGES = {
   all: 'https://images.unsplash.com/photo-1471295253337-3ceaaedca402?w=800&h=400&fit=crop&crop=center',
 };
 
-const getAdImage = (ad) => ad.imageUrl || DEFAULT_SPORT_IMAGES[ad.sport] || DEFAULT_SPORT_IMAGES.all;
+const API_URL = import.meta.env.VITE_API_URL || '';
+const getAdImage = (ad) => {
+  if (ad.imageUrl) return ad.imageUrl.startsWith('http') ? ad.imageUrl : `${API_URL}${ad.imageUrl}`;
+  return DEFAULT_SPORT_IMAGES[ad.sport] || DEFAULT_SPORT_IMAGES.all;
+};
 
 const PLACEMENT_OPTIONS = [
   { value: 'popup', label: 'Popup' },

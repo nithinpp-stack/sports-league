@@ -9,7 +9,11 @@ const SPORT_IMAGES = {
   badminton: 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=800&h=400&fit=crop&crop=center',
   all: 'https://images.unsplash.com/photo-1471295253337-3ceaaedca402?w=800&h=400&fit=crop&crop=center',
 };
-const getAdImage = (ad) => ad?.imageUrl || SPORT_IMAGES[ad?.sport] || SPORT_IMAGES.all;
+const API_URL = import.meta.env.VITE_API_URL || '';
+const getAdImage = (ad) => {
+  if (ad?.imageUrl) return ad.imageUrl.startsWith('http') ? ad.imageUrl : `${API_URL}${ad.imageUrl}`;
+  return SPORT_IMAGES[ad?.sport] || SPORT_IMAGES.all;
+};
 
 // Hook to fetch ads by placement
 export function useAds(placement, sport) {
