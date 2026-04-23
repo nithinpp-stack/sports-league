@@ -155,6 +155,19 @@ const footballDataSchema = new mongoose.Schema({
   },
 }, { _id: false });
 
+const badmintonDataSchema = new mongoose.Schema({
+  team1Points: { type: Number, default: 0 },
+  team2Points: { type: Number, default: 0 },
+  currentGame: { type: Number, default: 1 },
+  gamesWon: { type: Map, of: Number, default: () => ({}) },
+  gameHistory: [{
+    gameNumber: Number,
+    team1Points: Number,
+    team2Points: Number,
+    winner: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
+  }],
+}, { _id: false });
+
 const liveScoreSchema = new mongoose.Schema(
   {
     matchId: {
@@ -165,7 +178,7 @@ const liveScoreSchema = new mongoose.Schema(
     },
     sport: {
       type: String,
-      enum: ['cricket', 'football'],
+      enum: ['cricket', 'football', 'badminton'],
       default: 'cricket',
     },
     currentInnings: { type: Number, default: 1 },
@@ -181,6 +194,7 @@ const liveScoreSchema = new mongoose.Schema(
     },
     innings: { type: [inningsSchema], default: [] },
     footballData: { type: footballDataSchema },
+    badmintonData: { type: badmintonDataSchema },
     lastUpdated: { type: Date, default: Date.now },
   },
   { timestamps: true }

@@ -3,15 +3,27 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import Select from './Select';
+import { getAuctionTier, AUCTION_TIER_HINT } from '../../utils/auctionTier';
 
 const SKILL_OPTIONS = {
   cricket: ['batsman', 'bowler', 'allrounder', 'wicketkeeper'],
   football: ['goalkeeper', 'defender', 'midfielder', 'forward'],
+  badminton: ['shuttler'],
 };
+
+// BWF event categories a shuttler can register for. Displayed as a checkbox
+// group in the edit modal when sport === 'badminton'.
+const BADMINTON_EVENTS = [
+  { value: 'mens_singles', label: "Men's Singles" },
+  { value: 'womens_singles', label: "Women's Singles" },
+  { value: 'mens_doubles', label: "Men's Doubles" },
+  { value: 'womens_doubles', label: "Women's Doubles" },
+  { value: 'mixed_doubles', label: 'Mixed Doubles' },
+];
 
 export default function EditPlayerModal({ player, sport, onClose, tournamentId, selectedTeamId }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: '', skill: '', age: '', phone: '', address: '' });
+  const [form, setForm] = useState({ name: '', skill: '', age: '', phone: '', address: '', events: [], basePoints: 10 });
   const [editPlayerPhoto, setEditPlayerPhoto] = useState(null);
   const [editPlayerPhotoPreview, setEditPlayerPhotoPreview] = useState(null);
   const [editPlayerCurrentPhoto, setEditPlayerCurrentPhoto] = useState(null);
@@ -20,16 +32,19 @@ export default function EditPlayerModal({ player, sport, onClose, tournamentId, 
     if (player) {
       setForm({
         name: player.name || '',
-        skill: player.skill || '',
+        skill: player.skill || (sport === 'badminton' ? 'shuttler' : ''),
         age: player.age || '',
         phone: player.phone || '',
         address: player.address || '',
+        events: Array.isArray(player.events) ? player.events : [],
+        // Nullish on basePoints so a legitimate 0 isn't silently forced to 10.
+        basePoints: player.basePoints ?? 10,
       });
       setEditPlayerCurrentPhoto(player.photo || null);
       setEditPlayerPhoto(null);
       setEditPlayerPhotoPreview(null);
     }
-  }, [player]);
+  }, [player, sport]);
 
   const mutation = useMutation({
     mutationFn: ({ playerId, data }) => api.put(`/players/${playerId}`, data),
@@ -42,7 +57,16 @@ export default function EditPlayerModal({ player, sport, onClose, tournamentId, 
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to update player'),
   });
 
-  const skillOptions = SKILL_OPTIONS[sport] || [...SKILL_OPTIONS.cricket, ...SKILL_OPTIONS.football];
+  const skillOptions = SKILL_OPTIONS[sport] || [...SKILL_OPTIONS.cricket, ...SKILL_OPTIONS.football, ...SKILL_OPTIONS.badminton];
+
+  const toggleEvent = (ev) => {
+    setForm((f) => {
+      const set = new Set(f.events || []);
+      if (set.has(ev)) set.delete(ev);
+      else set.add(ev);
+      return { ...f, events: [...set] };
+    });
+  };
 
   const handleSave = async () => {
     const data = { ...form };
@@ -50,6 +74,15 @@ export default function EditPlayerModal({ player, sport, onClose, tournamentId, 
     else delete data.age;
     if (!data.phone) delete data.phone;
     if (!data.address) delete data.address;
+    // Coerce basePoints to a finite number — an empty string would fail schema
+    // validation, and we'd rather fall back to the schema default (10).
+    const pts = Number(data.basePoints);
+    if (Number.isFinite(pts) && pts >= 0) data.basePoints = pts;
+    else delete data.basePoints;
+    // Events only ship for badminton; strip on other sports so the pre-validate
+    // hook doesn't have to clean up after us.
+    if (sport !== 'badminton') delete data.events;
+    else if (!data.events?.length) delete data.events; // don't overwrite with []
 
     if (editPlayerPhoto) {
       try {
@@ -167,6 +200,65 @@ export default function EditPlayerModal({ player, sport, onClose, tournamentId, 
                 />
               </div>
             </div>
+            {/* Base Points — drives which auction set the player lands in when
+                Start Auction runs. Live tier pill so the admin can see the
+                bucket update as they type, instead of having to remember the
+                50/100 thresholds. */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Base Points
+                <span className="ml-2 text-xs font-normal text-gray-500">auction starting bid</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  step={5}
+                  value={form.basePoints}
+                  onChange={(e) => setForm((f) => ({ ...f, basePoints: e.target.value }))}
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                {(() => {
+                  const tier = getAuctionTier(form.basePoints);
+                  return (
+                    <span className={`shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${tier.badge}`}>
+                      {tier.name}
+                    </span>
+                  );
+                })()}
+              </div>
+              <p className="mt-1 text-[11px] text-gray-400">{AUCTION_TIER_HINT}</p>
+            </div>
+            {sport === 'badminton' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Events <span className="text-xs font-normal text-gray-500">(eligibility for match categories)</span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {BADMINTON_EVENTS.map((ev) => {
+                    const checked = form.events?.includes(ev.value);
+                    return (
+                      <label
+                        key={ev.value}
+                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
+                          checked
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                            : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!checked}
+                          onChange={() => toggleEvent(ev.value)}
+                          className="w-3.5 h-3.5 accent-emerald-600"
+                        />
+                        {ev.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div className="flex border-t border-gray-100">

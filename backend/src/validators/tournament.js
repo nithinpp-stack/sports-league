@@ -2,12 +2,15 @@ import { body, param, query } from 'express-validator';
 
 export const createTournamentValidator = [
   body('name').trim().notEmpty().withMessage('Tournament name is required'),
-  body('sport').optional().isIn(['cricket', 'football']).withMessage("Sport must be 'cricket' or 'football'"),
+  body('sport').optional().isIn(['cricket', 'football', 'badminton']).withMessage("Sport must be 'cricket', 'football', or 'badminton'"),
   body('format').custom((value, { req }) => {
     const sport = req.body.sport || 'cricket';
-    const validFormats = sport === 'football'
-      ? ['League', 'Cup', 'Friendly']
-      : ['T20', 'ODI', 'Test'];
+    const validFormatsMap = {
+      cricket: ['T20', 'ODI', 'Test'],
+      football: ['League', 'Cup', 'Friendly'],
+      badminton: ['Knockout', 'Round Robin', 'Group + Knockout', 'Double Elimination', 'Singles', 'Doubles', 'Mixed Doubles'],
+    };
+    const validFormats = validFormatsMap[sport] || validFormatsMap.cricket;
     if (!validFormats.includes(value)) {
       throw new Error(`Format must be one of: ${validFormats.join(', ')}`);
     }
@@ -27,12 +30,15 @@ export const createTournamentValidator = [
 export const updateTournamentValidator = [
   param('id').isMongoId().withMessage('Invalid tournament ID'),
   body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
-  body('sport').optional().isIn(['cricket', 'football']).withMessage("Sport must be 'cricket' or 'football'"),
+  body('sport').optional().isIn(['cricket', 'football', 'badminton']).withMessage("Sport must be 'cricket', 'football', or 'badminton'"),
   body('format').optional().custom((value, { req }) => {
     const sport = req.body.sport || 'cricket';
-    const validFormats = sport === 'football'
-      ? ['League', 'Cup', 'Friendly']
-      : ['T20', 'ODI', 'Test'];
+    const validFormatsMap = {
+      cricket: ['T20', 'ODI', 'Test'],
+      football: ['League', 'Cup', 'Friendly'],
+      badminton: ['Knockout', 'Round Robin', 'Group + Knockout', 'Double Elimination', 'Singles', 'Doubles', 'Mixed Doubles'],
+    };
+    const validFormats = validFormatsMap[sport] || validFormatsMap.cricket;
     if (!validFormats.includes(value)) {
       throw new Error(`Format must be one of: ${validFormats.join(', ')}`);
     }

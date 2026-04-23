@@ -10,14 +10,17 @@ export default function TeamManagement() {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
-  const [showManagerForm, setShowManagerForm] = useState(false);
   const [page, setPage] = useState(1);
-  const [managerForm, setManagerForm] = useState({ name: '', email: '', phone: '' });
+  // Login credentials for the team manager. Collected alongside the team so
+  // the admin can hand the login info to the team owner in one step.
   const [form, setForm] = useState({
     name: '',
     tournamentId: '',
     totalPoints: 1000,
-    managerId: '',
+    managerName: '',
+    managerEmail: '',
+    managerPassword: '',
+    managerPhone: '',
   });
 
   const { data: teamsData, isLoading: teamsLoading } = useQuery({
@@ -30,36 +33,43 @@ export default function TeamManagement() {
     queryFn: () => api.get('/tournaments').then((r) => r.data),
   });
 
-  const { data: managersData } = useQuery({
-    queryKey: ['managers-for-team', form.tournamentId],
-    queryFn: () => api.get(`/managers?tournamentId=${form.tournamentId}`).then((r) => r.data),
-    enabled: !!form.tournamentId,
-  });
-
-  const createManagerMutation = useMutation({
-    mutationFn: (data) => api.post('/managers', { ...data, tournamentId: form.tournamentId }),
-    onSuccess: (res) => {
-      const newManager = res.data?.manager || res.data;
-      toast.success(`Manager "${newManager?.name}" created!`);
-      qc.invalidateQueries(['managers-for-team', form.tournamentId]);
-      setShowManagerForm(false);
-      setManagerForm({ name: '', email: '', phone: '' });
-      if (newManager?._id) setForm({ ...form, managerId: newManager._id });
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to create manager'),
-  });
-
   const createMutation = useMutation({
     mutationFn: (data) => {
-      const payload = { ...data };
-      if (!payload.managerId) delete payload.managerId;
+      // Shape the flat form into the backend payload: team fields at the top,
+      // login fields nested under `managerAccount` so the controller can
+      // create a User + wire managerId atomically.
+      const payload = {
+        name: data.name,
+        tournamentId: data.tournamentId,
+        totalPoints: Number(data.totalPoints) || 0,
+        managerAccount: {
+          name: data.managerName,
+          email: data.managerEmail,
+          password: data.managerPassword,
+          phone: data.managerPhone || undefined,
+        },
+      };
       return api.post('/teams', payload);
     },
-    onSuccess: () => {
-      toast.success('Team created!');
+    onSuccess: (res) => {
+      const login = res.data?.managerLogin;
+      toast.success(
+        login?.email
+          ? `Team created — login: ${login.email}`
+          : 'Team created!',
+        { duration: 5000 }
+      );
       qc.invalidateQueries(['teams']);
       setShowForm(false);
-      setForm({ name: '', tournamentId: '', totalPoints: 1000, managerId: '' });
+      setForm({
+        name: '',
+        tournamentId: '',
+        totalPoints: 1000,
+        managerName: '',
+        managerEmail: '',
+        managerPassword: '',
+        managerPhone: '',
+      });
       setPage(1);
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create team'),
@@ -87,16 +97,6 @@ export default function TeamManagement() {
   const teams = Array.isArray(teamsData) ? teamsData : teamsData?.teams ?? [];
   const teamsPagination = teamsData?._pagination;
   const tournaments = Array.isArray(tournamentsData) ? tournamentsData : tournamentsData?.tournaments ?? [];
-  const allManagers = Array.isArray(managersData) ? managersData : managersData?.managers ?? [];
-
-  // Filter managers: only show those not already assigned to a team in the selected tournament
-  const assignedManagerIds = new Set(
-    teams
-      .filter((t) => !form.tournamentId || (t.tournamentId?._id || t.tournamentId) === form.tournamentId)
-      .map((t) => t.managerId?._id || t.managerId)
-      .filter(Boolean)
-  );
-  const managers = allManagers.filter((m) => !assignedManagerIds.has(m._id));
 
   return (
     <div className="space-y-6">
@@ -147,63 +147,63 @@ export default function TeamManagement() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Manager *</label>
-              <div className="flex gap-2">
-                <Select
-                  required
-                  value={form.managerId}
-                  onChange={(e) => setForm({ ...form, managerId: e.target.value })}
-                  className="flex-1"
-                  placeholder="Select manager..."
-                >
-                  {managers.map((m) => (
-                    <option key={m._id} value={m._id}>{m.name} ({m.email})</option>
-                  ))}
-                </Select>
-                <button
-                  type="button"
-                  onClick={() => setShowManagerForm((v) => !v)}
-                  className="px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors whitespace-nowrap"
-                >
-                  {showManagerForm ? 'Cancel' : 'New Manager'}
-                </button>
-              </div>
-              {showManagerForm && (
-                <div className="mt-3 p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Create New Manager</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="md:col-span-3">
+              <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-lg space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-700">Team Login Credentials</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    These credentials are for the team manager to log into the admin panel and bid.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Manager Name *</label>
                     <input
-                      placeholder="Name"
-                      value={managerForm.name}
-                      onChange={(e) => setManagerForm({ ...managerForm, name: e.target.value })}
-                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <input
-                      placeholder="Email"
-                      type="email"
-                      value={managerForm.email}
-                      onChange={(e) => setManagerForm({ ...managerForm, email: e.target.value })}
-                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <input
-                      placeholder="Phone"
-                      type="tel"
-                      value={managerForm.phone}
-                      onChange={(e) => setManagerForm({ ...managerForm, phone: e.target.value })}
-                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      required
+                      placeholder="e.g. Mumbai Team Owner"
+                      value={form.managerName}
+                      onChange={(e) => setForm({ ...form, managerName: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
-                  <button
-                    type="button"
-                    disabled={!managerForm.name || !form.tournamentId || createManagerMutation.isPending}
-                    onClick={() => createManagerMutation.mutate(managerForm)}
-                    className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                  >
-                    {createManagerMutation.isPending ? 'Creating...' : 'Create Manager'}
-                  </button>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Phone (optional)</label>
+                    <input
+                      type="tel"
+                      placeholder="e.g. +91 98765 43210"
+                      value={form.managerPhone}
+                      onChange={(e) => setForm({ ...form, managerPhone: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Login Email *</label>
+                    <input
+                      required
+                      type="email"
+                      placeholder="mumbai@bid.test"
+                      value={form.managerEmail}
+                      onChange={(e) => setForm({ ...form, managerEmail: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Password *</label>
+                    <input
+                      required
+                      type="text"
+                      minLength={6}
+                      placeholder="min 6 chars"
+                      value={form.managerPassword}
+                      onChange={(e) => setForm({ ...form, managerPassword: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                    />
+                  </div>
                 </div>
-              )}
+                <p className="text-[11px] text-gray-500">
+                  Share these credentials with the team. They log in at the admin panel and land directly on their auction bidding page.
+                </p>
+              </div>
             </div>
             <div className="md:col-span-3 flex justify-end">
               <button

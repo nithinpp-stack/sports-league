@@ -18,11 +18,14 @@ const STATUS_COLORS = {
 const FORMATS_BY_SPORT = {
   cricket: ['T20', 'ODI', 'Test'],
   football: ['League', 'Cup', 'Friendly'],
+  // BWF tournament formats — Singles/Doubles etc. are match categories, not tournament formats
+  badminton: ['Knockout', 'Round Robin', 'Group + Knockout', 'Double Elimination'],
 };
 
 const SPORT_BADGE_COLORS = {
   cricket: 'bg-emerald-100 text-emerald-700',
   football: 'bg-blue-100 text-blue-700',
+  badminton: 'bg-purple-100 text-purple-700',
 };
 
 export default function TournamentManagement() {
@@ -114,7 +117,7 @@ export default function TournamentManagement() {
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-2">Sport *</label>
               <div className="flex gap-2">
-                {['cricket', 'football'].map((s) => (
+                {['cricket', 'football', 'badminton'].map((s) => (
                   <button
                     key={s}
                     type="button"

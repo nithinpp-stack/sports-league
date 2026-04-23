@@ -179,9 +179,13 @@ export default function TournamentDetail() {
               >
                 Edit
               </button>
-              <Link to={`/auctions/${id}`} className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
-                Auction Control
-              </Link>
+              {/* Auctions only make sense for cricket — badminton / football tournaments
+                  don't have the points-based bidding flow, so hide the shortcut there. */}
+              {t.sport === 'cricket' && (
+                <Link to={`/auctions/${id}`} className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
+                  Auction Control
+                </Link>
+              )}
             </div>
           </div>
         )}

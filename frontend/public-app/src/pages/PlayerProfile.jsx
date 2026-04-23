@@ -61,6 +61,8 @@ export default function PlayerProfile() {
   }, [matchHistory]);
 
   const achievements = achievementsData || {};
+  // Awards currently only tracked for cricket. Non-cricket players will have totalAwards === 0
+  // and the Achievements section will be hidden.
   const totalAwards = (achievements.manOfMatch?.count || 0) + (achievements.bestBatsman?.count || 0) + (achievements.bestBowler?.count || 0);
 
   if (isLoading) {
@@ -80,6 +82,7 @@ export default function PlayerProfile() {
   const liveStats = liveStatsData?.matches > 0 ? liveStatsData : null;
   const stats = liveStats || player.stats || {};
   const footballStats = player.footballStats || {};
+  const badmintonStats = player.badmintonStats || {};
   const photoUrl = player.photo ? `${import.meta.env.VITE_API_URL || ''}${player.photo}` : null;
 
   const cricketStats = [
@@ -104,7 +107,16 @@ export default function PlayerProfile() {
     { label: 'Minutes', value: footballStats.minutesPlayed },
   ];
 
-  const activeStats = sport === 'football' ? footballStatItems : cricketStats;
+  const badmintonStatItems = [
+    { label: 'Matches', value: badmintonStats.matches, accent: true },
+    { label: 'Wins', value: badmintonStats.wins, accent: true },
+    { label: 'Win Rate', value: badmintonStats.winRate ? `${badmintonStats.winRate}%` : '--' },
+    { label: 'Points Won', value: badmintonStats.pointsWon },
+    { label: 'Points Lost', value: badmintonStats.pointsLost },
+    { label: 'Best Rally', value: badmintonStats.bestRally },
+  ];
+
+  const activeStats = sport === 'football' ? footballStatItems : sport === 'badminton' ? badmintonStatItems : cricketStats;
 
   return (
     <div className="space-y-8">
@@ -207,7 +219,13 @@ export default function PlayerProfile() {
           <div className="h-px flex-1 bg-gradient-to-r from-slate-200 dark:from-gray-700 to-transparent" />
         </div>
 
-        <div className={`grid gap-4 ${sport === 'football' ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-7' : 'grid-cols-3 sm:grid-cols-5'}`}>
+        <div className={`grid gap-4 ${
+          sport === 'football'
+            ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-7'
+            : sport === 'badminton'
+              ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6'
+              : 'grid-cols-3 sm:grid-cols-5'
+        }`}>
           {activeStats.map((s) => (
             <StatCard key={s.label} label={s.label} value={s.value} accent={s.accent} />
           ))}
@@ -263,9 +281,52 @@ export default function PlayerProfile() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {tournamentGroups.map(({ tournament, matches: tMatches }) => {
-              const totalRuns = tMatches.reduce((s, m) => s + (m.batting?.runs || 0), 0);
-              const totalWickets = tMatches.reduce((s, m) => s + (m.bowling?.wickets || 0), 0);
-              const tAwards = tMatches.reduce((s, m) => s + (m.awards?.length || 0), 0);
+              const tSport = tournament?.sport || 'cricket';
+              const playerTeamId = String(player.teamId?._id || player.teamId || '');
+              const wins = tMatches.filter(m => {
+                const winnerId = String(m.result?.winner?._id || m.result?.winner || '');
+                return winnerId && playerTeamId && winnerId === playerTeamId;
+              }).length;
+
+              // Precomputed full Tailwind class strings so JIT can detect them at build time.
+              const COLORS = [
+                'text-slate-900 dark:text-white',
+                'text-emerald-600 dark:text-emerald-400',
+                'text-blue-600 dark:text-blue-400',
+                'text-amber-600 dark:text-amber-400',
+              ];
+              // Build sport-specific tile metrics
+              let tiles;
+              if (tSport === 'badminton') {
+                const pointsWon = tMatches.reduce((s, m) => s + (m.badminton?.pointsWon || 0), 0);
+                tiles = [
+                  { label: 'Matches', value: tMatches.length },
+                  { label: 'Wins', value: wins },
+                  { label: 'Losses', value: Math.max(0, tMatches.length - wins) },
+                  { label: 'Pts Won', value: pointsWon || '—' },
+                ];
+              } else if (tSport === 'football') {
+                const goals = tMatches.reduce((s, m) => s + (m.football?.goals || 0), 0);
+                const assists = tMatches.reduce((s, m) => s + (m.football?.assists || 0), 0);
+                const cards = tMatches.reduce((s, m) => s + (m.football?.yellowCards || 0) + (m.football?.redCards || 0), 0);
+                tiles = [
+                  { label: 'Matches', value: tMatches.length },
+                  { label: 'Goals', value: goals },
+                  { label: 'Assists', value: assists },
+                  { label: 'Cards', value: cards },
+                ];
+              } else {
+                const totalRuns = tMatches.reduce((s, m) => s + (m.batting?.runs || 0), 0);
+                const totalWickets = tMatches.reduce((s, m) => s + (m.bowling?.wickets || 0), 0);
+                const tAwards = tMatches.reduce((s, m) => s + (m.awards?.length || 0), 0);
+                tiles = [
+                  { label: 'Matches', value: tMatches.length },
+                  { label: 'Runs', value: totalRuns },
+                  { label: 'Wickets', value: totalWickets },
+                  { label: 'Awards', value: tAwards },
+                ];
+              }
+
               return (
                 <Link
                   key={tournament?._id || 'unknown'}
@@ -284,22 +345,12 @@ export default function PlayerProfile() {
                     }`}>{tournament?.status || '—'}</span>
                   </div>
                   <div className="grid grid-cols-4 gap-2 text-center">
-                    <div>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">{tMatches.length}</p>
-                      <p className="text-[10px] text-slate-400 dark:text-gray-500 uppercase">Matches</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{totalRuns}</p>
-                      <p className="text-[10px] text-slate-400 dark:text-gray-500 uppercase">Runs</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{totalWickets}</p>
-                      <p className="text-[10px] text-slate-400 dark:text-gray-500 uppercase">Wickets</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-bold text-amber-600 dark:text-amber-400">{tAwards}</p>
-                      <p className="text-[10px] text-slate-400 dark:text-gray-500 uppercase">Awards</p>
-                    </div>
+                    {tiles.map((tile, i) => (
+                      <div key={i}>
+                        <p className={`text-lg font-bold ${COLORS[i]}`}>{tile.value}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-gray-500 uppercase">{tile.label}</p>
+                      </div>
+                    ))}
                   </div>
                 </Link>
               );
@@ -322,57 +373,143 @@ export default function PlayerProfile() {
                   <tr className="border-b border-slate-100 dark:border-gray-800 bg-slate-50 dark:bg-gray-900/50">
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Match</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Tournament</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Batting</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Bowling</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Awards</th>
+                    {sport === 'badminton' ? (
+                      <>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Category</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Score</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Result</th>
+                      </>
+                    ) : sport === 'football' ? (
+                      <>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Goals</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Assists</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Cards</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Batting</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Bowling</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase">Awards</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-gray-800">
-                  {matchHistory.map(m => (
-                    <tr key={m._id} className="hover:bg-slate-50 dark:hover:bg-gray-800/40 transition-colors">
-                      <td className="px-4 py-3">
-                        <Link to={`/matches/${m._id}`} className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
-                          <p className="font-medium text-slate-900 dark:text-white text-xs">
-                            {m.team1?.name} vs {m.team2?.name}
-                          </p>
-                          <p className="text-[11px] text-slate-400 dark:text-gray-500 mt-0.5">
-                            {m.date ? dayjs(m.date).format('DD MMM YYYY') : '—'}
-                          </p>
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-500 dark:text-gray-400">{m.tournament?.name || '—'}</td>
-                      <td className="px-4 py-3 text-center">
-                        {m.batting ? (
-                          <div>
-                            <span className="font-bold text-slate-900 dark:text-white">{m.batting.runs}</span>
-                            <span className="text-slate-400 dark:text-gray-500 text-xs"> ({m.batting.balls}b)</span>
-                            {(m.batting.fours > 0 || m.batting.sixes > 0) && (
-                              <p className="text-[10px] text-slate-400 dark:text-gray-500">{m.batting.fours}×4 {m.batting.sixes}×6</p>
-                            )}
-                          </div>
-                        ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {m.bowling ? (
-                          <div>
-                            <span className="font-bold text-slate-900 dark:text-white">{m.bowling.wickets}/{m.bowling.runs}</span>
-                            <p className="text-[10px] text-slate-400 dark:text-gray-500">({m.bowling.overs} ov)</p>
-                          </div>
-                        ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {m.awards?.length > 0 ? (
-                          <div className="flex flex-wrap justify-center gap-1">
-                            {m.awards.map((a, i) => (
-                              <span key={i} className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
-                                {a === 'Man of Match' ? 'MoM' : a === 'Best Batsman' ? 'Bat' : 'Bowl'}
-                              </span>
-                            ))}
-                          </div>
-                        ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
-                      </td>
-                    </tr>
-                  ))}
+                  {matchHistory.map(m => {
+                    const playerTeamId = String(player.teamId?._id || player.teamId || '');
+                    const winnerId = String(m.result?.winner?._id || m.result?.winner || '');
+                    const didWin = winnerId && playerTeamId && winnerId === playerTeamId;
+                    const scoresArr = Array.isArray(m.result?.scores) ? m.result.scores : [];
+                    const scoreLine = scoresArr.length
+                      ? scoresArr.map(g => `${g.team1Points}-${g.team2Points}`).join(', ')
+                      : (m.result?.summary || '');
+
+                    return (
+                      <tr key={m._id} className="hover:bg-slate-50 dark:hover:bg-gray-800/40 transition-colors">
+                        <td className="px-4 py-3">
+                          <Link to={`/matches/${m._id}`} className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                            <p className="font-medium text-slate-900 dark:text-white text-xs">
+                              {m.team1?.name} vs {m.team2?.name}
+                            </p>
+                            <p className="text-[11px] text-slate-400 dark:text-gray-500 mt-0.5">
+                              {m.date ? dayjs(m.date).format('DD MMM YYYY') : '—'}
+                            </p>
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-500 dark:text-gray-400">{m.tournament?.name || '—'}</td>
+
+                        {sport === 'badminton' ? (
+                          <>
+                            <td className="px-4 py-3 text-center">
+                              {m.category ? (
+                                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
+                                  {m.category}
+                                </span>
+                              ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {scoreLine ? (
+                                <span className="font-medium text-slate-900 dark:text-white text-xs">{scoreLine}</span>
+                              ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {winnerId ? (
+                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                  didWin
+                                    ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20'
+                                    : 'bg-slate-50 dark:bg-gray-800 text-slate-500 dark:text-gray-400 border border-slate-200 dark:border-gray-700'
+                                }`}>
+                                  {didWin ? 'Won' : 'Lost'}
+                                </span>
+                              ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            </td>
+                          </>
+                        ) : sport === 'football' ? (
+                          <>
+                            <td className="px-4 py-3 text-center">
+                              {m.football ? (
+                                <span className="font-bold text-slate-900 dark:text-white">{m.football.goals ?? 0}</span>
+                              ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {m.football ? (
+                                <span className="font-bold text-slate-900 dark:text-white">{m.football.assists ?? 0}</span>
+                              ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {m.football && ((m.football.yellowCards || 0) + (m.football.redCards || 0) > 0) ? (
+                                <div className="flex justify-center gap-1">
+                                  {m.football.yellowCards > 0 && (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
+                                      {m.football.yellowCards}Y
+                                    </span>
+                                  )}
+                                  {m.football.redCards > 0 && (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-500/20">
+                                      {m.football.redCards}R
+                                    </span>
+                                  )}
+                                </div>
+                              ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-4 py-3 text-center">
+                              {m.batting ? (
+                                <div>
+                                  <span className="font-bold text-slate-900 dark:text-white">{m.batting.runs}</span>
+                                  <span className="text-slate-400 dark:text-gray-500 text-xs"> ({m.batting.balls}b)</span>
+                                  {(m.batting.fours > 0 || m.batting.sixes > 0) && (
+                                    <p className="text-[10px] text-slate-400 dark:text-gray-500">{m.batting.fours}×4 {m.batting.sixes}×6</p>
+                                  )}
+                                </div>
+                              ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {m.bowling ? (
+                                <div>
+                                  <span className="font-bold text-slate-900 dark:text-white">{m.bowling.wickets}/{m.bowling.runs}</span>
+                                  <p className="text-[10px] text-slate-400 dark:text-gray-500">({m.bowling.overs} ov)</p>
+                                </div>
+                              ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {m.awards?.length > 0 ? (
+                                <div className="flex flex-wrap justify-center gap-1">
+                                  {m.awards.map((a, i) => (
+                                    <span key={i} className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
+                                      {a === 'Man of Match' ? 'MoM' : a === 'Best Batsman' ? 'Bat' : 'Bowl'}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

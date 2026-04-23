@@ -422,6 +422,162 @@ const seed = async () => {
 
     console.log('Created 4 football matches');
 
+    // ============================================================
+    // --- Badminton Data ---
+    // ============================================================
+
+    const badmintonTournament = await Tournament.create({
+      name: 'National Badminton Championship 2026',
+      sport: 'badminton',
+      format: 'Singles',
+      location: 'Delhi',
+      venue: 'Indira Gandhi Sports Complex',
+      startDate: new Date('2026-07-01'),
+      endDate: new Date('2026-07-30'),
+      status: 'active',
+      maxTeams: 4,
+      description: 'Premier badminton championship featuring top players',
+      createdBy: eventMgr1._id,
+    });
+
+    console.log('Created badminton tournament');
+
+    // --- Badminton Managers ---
+    const bdManager1 = await Manager.create({ name: 'Badminton Manager One', email: 'bdmanager1@sportsleague.com', tournamentId: badmintonTournament._id });
+    const bdManager2 = await Manager.create({ name: 'Badminton Manager Two', email: 'bdmanager2@sportsleague.com', tournamentId: badmintonTournament._id });
+
+    console.log('Created badminton managers');
+
+    // --- Badminton Teams ---
+    const badmintonTeams = await Team.insertMany([
+      {
+        name: 'Delhi Shuttlers',
+        managerId: bdManager1._id,
+        tournamentId: badmintonTournament._id,
+        totalPoints: 1000,
+        remainingPoints: 750,
+        playerCount: 4,
+        maxPlayers: 10,
+      },
+      {
+        name: 'Mumbai Rackets',
+        managerId: bdManager2._id,
+        tournamentId: badmintonTournament._id,
+        totalPoints: 1000,
+        remainingPoints: 700,
+        playerCount: 4,
+        maxPlayers: 10,
+      },
+      {
+        name: 'Chennai Smashers',
+        tournamentId: badmintonTournament._id,
+        totalPoints: 1000,
+        remainingPoints: 800,
+        playerCount: 4,
+        maxPlayers: 10,
+      },
+      {
+        name: 'Bangalore Eagles',
+        tournamentId: badmintonTournament._id,
+        totalPoints: 1000,
+        remainingPoints: 850,
+        playerCount: 4,
+        maxPlayers: 10,
+      },
+    ]);
+
+    const [bdTeamA, bdTeamB, bdTeamC, bdTeamD] = badmintonTeams;
+    console.log('Created 4 badminton teams');
+
+    // --- Badminton Players (16 total, 4 per team) ---
+    const badmintonPlayerData = [
+      // Delhi Shuttlers
+      { name: 'Saina Nehwal', age: 32, sport: 'badminton', skill: 'shuttler', basePrice: 150000, teamId: bdTeamA._id, status: 'sold', badmintonStats: { matches: 12, wins: 8, winRate: 67, pointsWon: 256, pointsLost: 189, bestRally: 28 } },
+      { name: 'Ashwini Ponnappa', age: 28, sport: 'badminton', skill: 'shuttler', basePrice: 120000, teamId: bdTeamA._id, status: 'sold', badmintonStats: { matches: 10, wins: 6, winRate: 60, pointsWon: 210, pointsLost: 180, bestRally: 24 } },
+      { name: 'Prannoy Kumar', age: 26, sport: 'badminton', skill: 'shuttler', basePrice: 140000, teamId: bdTeamA._id, status: 'sold', badmintonStats: { matches: 11, wins: 7, winRate: 64, pointsWon: 235, pointsLost: 198, bestRally: 26 } },
+      { name: 'Ritika Thaker', age: 24, sport: 'badminton', skill: 'shuttler', basePrice: 100000, teamId: bdTeamA._id, status: 'sold', badmintonStats: { matches: 9, wins: 5, winRate: 56, pointsWon: 189, pointsLost: 165, bestRally: 22 } },
+      // Mumbai Rackets
+      { name: 'PV Sindhu', age: 30, sport: 'badminton', skill: 'shuttler', basePrice: 200000, teamId: bdTeamB._id, status: 'sold', badmintonStats: { matches: 14, wins: 10, winRate: 71, pointsWon: 298, pointsLost: 210, bestRally: 32 } },
+      { name: 'Jwala Gutta', age: 31, sport: 'badminton', skill: 'shuttler', basePrice: 110000, teamId: bdTeamB._id, status: 'sold', badmintonStats: { matches: 8, wins: 5, winRate: 63, pointsWon: 178, pointsLost: 152, bestRally: 20 } },
+      { name: 'HS Prannoy', age: 27, sport: 'badminton', skill: 'shuttler', basePrice: 130000, teamId: bdTeamB._id, status: 'sold', badmintonStats: { matches: 13, wins: 8, winRate: 62, pointsWon: 272, pointsLost: 215, bestRally: 29 } },
+      { name: 'Tanisha Crasto', age: 25, sport: 'badminton', skill: 'shuttler', basePrice: 90000, teamId: bdTeamB._id, status: 'sold', badmintonStats: { matches: 7, wins: 4, winRate: 57, pointsWon: 156, pointsLost: 140, bestRally: 19 } },
+      // Chennai Smashers
+      { name: 'Rajiv Ouseph', age: 33, sport: 'badminton', skill: 'shuttler', basePrice: 125000, teamId: bdTeamC._id, status: 'sold', badmintonStats: { matches: 10, wins: 6, winRate: 60, pointsWon: 215, pointsLost: 190, bestRally: 25 } },
+      { name: 'Harita Chaudhary', age: 26, sport: 'badminton', skill: 'shuttler', basePrice: 105000, teamId: bdTeamC._id, status: 'sold', badmintonStats: { matches: 9, wins: 5, winRate: 56, pointsWon: 188, pointsLost: 168, bestRally: 23 } },
+      { name: 'Sumeeth Reddy', age: 28, sport: 'badminton', skill: 'shuttler', basePrice: 115000, teamId: bdTeamC._id, status: 'sold', badmintonStats: { matches: 12, wins: 7, winRate: 58, pointsWon: 242, pointsLost: 205, bestRally: 27 } },
+      { name: 'N Sikki Reddy', age: 24, sport: 'badminton', skill: 'shuttler', basePrice: 95000, teamId: bdTeamC._id, status: 'sold', badmintonStats: { matches: 8, wins: 4, winRate: 50, pointsWon: 162, pointsLost: 155, bestRally: 21 } },
+      // Bangalore Eagles
+      { name: 'Kidambi Srikanth', age: 29, sport: 'badminton', skill: 'shuttler', basePrice: 180000, teamId: bdTeamD._id, status: 'sold', badmintonStats: { matches: 13, wins: 9, winRate: 69, pointsWon: 285, pointsLost: 208, bestRally: 30 } },
+      { name: 'Treesa Jolly', age: 27, sport: 'badminton', skill: 'shuttler', basePrice: 100000, teamId: bdTeamD._id, status: 'sold', badmintonStats: { matches: 11, wins: 6, winRate: 55, pointsWon: 220, pointsLost: 195, bestRally: 24 } },
+      { name: 'Satwik Sairaj', age: 25, sport: 'badminton', skill: 'shuttler', basePrice: 135000, teamId: bdTeamD._id, status: 'sold', badmintonStats: { matches: 12, wins: 8, winRate: 67, pointsWon: 258, pointsLost: 188, bestRally: 28 } },
+      { name: 'Gayatri Gopichand', age: 23, sport: 'badminton', skill: 'shuttler', basePrice: 85000, teamId: bdTeamD._id, status: 'sold', badmintonStats: { matches: 10, wins: 6, winRate: 60, pointsWon: 204, pointsLost: 172, bestRally: 23 } },
+    ];
+
+    const badmintonPlayersWithTournament = badmintonPlayerData.map(p => ({
+      ...p,
+      tournamentId: badmintonTournament._id,
+    }));
+    await Player.insertMany(badmintonPlayersWithTournament);
+
+    console.log('Created 16 badminton players');
+
+    // --- Badminton Matches ---
+    const bdPastDate1 = new Date('2026-07-05');
+    const bdPastDate2 = new Date('2026-07-10');
+    const bdFutureDate1 = new Date('2026-07-15');
+    const bdFutureDate2 = new Date('2026-07-20');
+
+    await Match.insertMany([
+      {
+        tournamentId: badmintonTournament._id,
+        team1Id: bdTeamA._id,
+        team2Id: bdTeamB._id,
+        date: bdPastDate1,
+        venue: 'Indira Gandhi Sports Complex',
+        status: 'completed',
+        result: {
+          winner: bdTeamA._id,
+          winType: 'points',
+          winMargin: 21,
+          summary: 'Delhi Shuttlers beat Mumbai Rackets 21-15',
+        },
+        scorerId: eventMgr1._id,
+      },
+      {
+        tournamentId: badmintonTournament._id,
+        team1Id: bdTeamC._id,
+        team2Id: bdTeamD._id,
+        date: bdPastDate2,
+        venue: 'Indira Gandhi Sports Complex',
+        status: 'completed',
+        result: {
+          winner: bdTeamD._id,
+          winType: 'points',
+          winMargin: 20,
+          summary: 'Bangalore Eagles beat Chennai Smashers 21-14',
+        },
+        scorerId: eventMgr2._id,
+      },
+      {
+        tournamentId: badmintonTournament._id,
+        team1Id: bdTeamA._id,
+        team2Id: bdTeamC._id,
+        date: bdFutureDate1,
+        venue: 'Indira Gandhi Sports Complex',
+        status: 'upcoming',
+      },
+      {
+        tournamentId: badmintonTournament._id,
+        team1Id: bdTeamB._id,
+        team2Id: bdTeamD._id,
+        date: bdFutureDate2,
+        venue: 'Indira Gandhi Sports Complex',
+        status: 'upcoming',
+      },
+    ]);
+
+    console.log('Created 4 badminton matches');
+
     // --- Print credentials ---
     console.log('\n========== SEED COMPLETE ==========');
     console.log('\nAdmin Credentials (Admin collection):');
@@ -448,6 +604,10 @@ const seed = async () => {
     console.log('  [Football] Teams: 4 (City FC, United FC, Rovers FC, Athletic FC)');
     console.log('  [Football] Players: 20 (5 per team, goalkeeper/defender/midfielder/forward)');
     console.log('  [Football] Matches: 4 (2 completed, 2 upcoming)');
+    console.log('  [Badminton] Tournament: National Badminton Championship 2026 (active) — created by eventmgr1');
+    console.log('  [Badminton] Teams: 4 (Delhi Shuttlers, Mumbai Rackets, Chennai Smashers, Bangalore Eagles)');
+    console.log('  [Badminton] Players: 16 (4 per team)');
+    console.log('  [Badminton] Matches: 4 (2 completed, 2 upcoming)');
     console.log('====================================\n');
 
     await mongoose.disconnect();

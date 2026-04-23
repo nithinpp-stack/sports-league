@@ -1,6 +1,7 @@
 import LiveScore from '../models/LiveScore.js';
 import Match from '../models/Match.js';
 import Tournament from '../models/Tournament.js';
+import Player from '../models/Player.js';
 
 // GET /:matchId
 export const getLiveScore = async (req, res, next) => {
@@ -17,6 +18,46 @@ export const getLiveScore = async (req, res, next) => {
     if (!liveScore) {
       return res.status(404).json({ success: false, message: 'Live score not found for this match' });
     }
+
+    // Ensure badmintonData exists for badminton matches
+    if (liveScore.sport === 'badminton' && !liveScore.badmintonData) {
+      liveScore.badmintonData = {
+        team1Points: 0,
+        team2Points: 0,
+        currentGame: 1,
+        gamesWon: {},
+      };
+      await liveScore.save();
+    }
+
+    // Rebuild gamesWon from gameHistory if out of sync (data migration / bug recovery)
+    if (liveScore.badmintonData) {
+      const hasHistory = liveScore.badmintonData.gameHistory && liveScore.badmintonData.gameHistory.length > 0;
+      const gw = liveScore.badmintonData.gamesWon;
+      let totalWins = 0;
+      if (gw && typeof gw.forEach === 'function' && typeof gw.get === 'function') {
+        gw.forEach((v) => { totalWins += v || 0; });
+      } else if (gw) {
+        Object.values(gw).forEach((v) => { totalWins += v || 0; });
+      }
+      const completedHistoryCount = hasHistory
+        ? liveScore.badmintonData.gameHistory.filter(g => g.winner).length
+        : 0;
+
+      if (hasHistory && totalWins < completedHistoryCount) {
+        const newGamesWon = {};
+        liveScore.badmintonData.gameHistory.forEach(game => {
+          if (game.winner) {
+            const winnerId = String(game.winner);
+            newGamesWon[winnerId] = (newGamesWon[winnerId] || 0) + 1;
+          }
+        });
+        liveScore.badmintonData.gamesWon = newGamesWon;
+        liveScore.markModified('badmintonData');
+        await liveScore.save();
+      }
+    }
+
     res.json({ success: true, data: liveScore });
   } catch (err) {
     next(err);
@@ -64,6 +105,16 @@ export const startMatch = async (req, res, next) => {
 
     const existing = await LiveScore.findOne({ matchId });
     if (existing) {
+      // For badminton, initialize badmintonData if it doesn't exist (for reopened matches)
+      if (sport === 'badminton' && !existing.badmintonData) {
+        existing.badmintonData = {
+          team1Points: 0,
+          team2Points: 0,
+          currentGame: 1,
+          gamesWon: {},
+        };
+        await existing.save();
+      }
       return res.status(400).json({ success: false, message: 'Live score already exists for this match' });
     }
 
@@ -87,6 +138,19 @@ export const startMatch = async (req, res, next) => {
           goals: [],
           cards: [],
           substitutions: [],
+        },
+      });
+    } else if (sport === 'badminton') {
+      liveScore = await LiveScore.create({
+        matchId,
+        sport: 'badminton',
+        battingTeamId: match.team1Id,
+        bowlingTeamId: match.team2Id,
+        badmintonData: {
+          team1Points: 0,
+          team2Points: 0,
+          currentGame: 1,
+          gamesWon: { [match.team1Id]: 0, [match.team2Id]: 0 },
         },
       });
     } else {
@@ -131,8 +195,75 @@ export const startMatch = async (req, res, next) => {
 export const recordBall = async (req, res, next) => {
   try {
     const { matchId } = req.params;
-    const { batsmanId, bowlerId, runs = 0, extras, isWicket = false, wicket, commentary } = req.body;
+    const { batsmanId, bowlerId, runs = 0, extras, isWicket = false, wicket, commentary, scoringTeamId, points } = req.body;
 
+    const match = await Match.findById(matchId).populate('tournamentId', 'sport');
+    const sport = match?.tournamentId?.sport || 'cricket';
+
+    // Handle badminton point scoring
+    if (sport === 'badminton') {
+      if (!scoringTeamId) return res.status(400).json({ success: false, message: 'Scoring team is required' });
+      if (points === undefined) return res.status(400).json({ success: false, message: 'Points value is required' });
+
+      // Guard: match must not be completed already
+      if (match.status === 'completed') {
+        return res.status(409).json({
+          success: false,
+          message: 'Match is already completed. Reopen it before adding points.',
+        });
+      }
+
+      const liveScore = await LiveScore.findOne({ matchId });
+      if (!liveScore) {
+        return res.status(404).json({ success: false, message: 'Live score not found' });
+      }
+
+      // Ensure badmintonData exists
+      if (!liveScore.badmintonData) {
+        liveScore.badmintonData = {
+          team1Points: 0,
+          team2Points: 0,
+          currentGame: 1,
+          gamesWon: {},
+        };
+      }
+
+      // Update badminton points (positive = add, negative = undo; clamp to 0)
+      const team1Id = String(match.team1Id);
+      const team2Id = String(match.team2Id);
+      const isScoringTeam1 = String(scoringTeamId) === team1Id;
+
+      if (isScoringTeam1) {
+        liveScore.badmintonData.team1Points = Math.max(
+          0,
+          (liveScore.badmintonData.team1Points || 0) + points
+        );
+      } else {
+        liveScore.badmintonData.team2Points = Math.max(
+          0,
+          (liveScore.badmintonData.team2Points || 0) + points
+        );
+      }
+
+      await liveScore.save();
+
+      // Check if game is won (21 points)
+      const gameWinner = liveScore.badmintonData.team1Points >= 21 ? team1Id :
+                         liveScore.badmintonData.team2Points >= 21 ? team2Id : null;
+
+      const io = req.app.get('io');
+      io.of('/live-scoring').to(`match:${matchId}`).emit('ball-update', {
+        matchId,
+        team1Points: liveScore.badmintonData.team1Points,
+        team2Points: liveScore.badmintonData.team2Points,
+        currentGame: liveScore.badmintonData.currentGame,
+        gameWinner,
+      });
+
+      return res.json({ success: true, data: liveScore });
+    }
+
+    // Cricket/Football logic continues below
     if (!batsmanId) return res.status(400).json({ success: false, message: 'Batsman is required' });
     if (!bowlerId) return res.status(400).json({ success: false, message: 'Bowler is required' });
 
@@ -366,7 +497,7 @@ export const reopenMatch = async (req, res, next) => {
   try {
     const { matchId } = req.params;
 
-    const match = await Match.findById(matchId);
+    const match = await Match.findById(matchId).populate('tournamentId', 'sport');
     if (!match) {
       return res.status(404).json({ success: false, message: 'Match not found' });
     }
@@ -380,6 +511,43 @@ export const reopenMatch = async (req, res, next) => {
     match.bestBatsman = undefined;
     match.bestBowler = undefined;
     await match.save();
+
+    // Badminton: rewind the live state to the start of the deciding game so points can be edited.
+    // Pop the last completed game, restore its final points as editable "current game" state,
+    // and decrement that game winner's games-won counter.
+    const sport = match.tournamentId?.sport;
+    if (sport === 'badminton') {
+      const liveScore = await LiveScore.findOne({ matchId });
+      if (liveScore?.badmintonData) {
+        const bd = liveScore.badmintonData;
+        const history = Array.isArray(bd.gameHistory) ? bd.gameHistory : [];
+        const lastGame = history[history.length - 1];
+
+        if (lastGame) {
+          // Decrement games-won for the winner of the popped game
+          const winnerKey = String(lastGame.winner || '');
+          if (winnerKey && bd.gamesWon) {
+            if (bd.gamesWon instanceof Map) {
+              const cur = bd.gamesWon.get(winnerKey) || 0;
+              if (cur > 0) bd.gamesWon.set(winnerKey, cur - 1);
+            } else {
+              const cur = bd.gamesWon[winnerKey] || 0;
+              if (cur > 0) bd.gamesWon[winnerKey] = cur - 1;
+            }
+          }
+          // Restore points to the popped game's final state (admin can now adjust)
+          bd.team1Points = lastGame.team1Points || 0;
+          bd.team2Points = lastGame.team2Points || 0;
+          bd.currentGame = lastGame.gameNumber || (history.length);
+          // Remove the popped game from history
+          bd.gameHistory = history.slice(0, -1);
+        }
+        bd.matchStatus = 'live';
+        liveScore.markModified('badmintonData');
+        liveScore.markModified('badmintonData.gamesWon');
+        await liveScore.save();
+      }
+    }
 
     const io = req.app.get('io');
     io.of('/live-scoring').to(`match:${matchId}`).emit('match-reopen', { matchId });
@@ -619,6 +787,165 @@ export const undoLastBall = async (req, res, next) => {
     io.of('/live-scoring').to(`match:${matchId}`).emit('score-correction', { matchId, liveScore, undoneBall: lastBall });
 
     res.json({ success: true, data: { liveScore, undoneBall: lastBall } });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /:matchId/next-game (Badminton only)
+export const nextBadmintonGame = async (req, res, next) => {
+  try {
+    const { matchId } = req.params;
+
+    const match = await Match.findById(matchId).populate('tournamentId', 'sport');
+    if (!match) {
+      return res.status(404).json({ success: false, message: 'Match not found' });
+    }
+
+    const sport = match.tournamentId?.sport || 'cricket';
+    if (sport !== 'badminton') {
+      return res.status(400).json({ success: false, message: 'This endpoint is for badminton matches only' });
+    }
+
+    const liveScore = await LiveScore.findOne({ matchId });
+    if (!liveScore) {
+      return res.status(404).json({ success: false, message: 'Live score not found' });
+    }
+
+    if (!liveScore.badmintonData) {
+      return res.status(400).json({ success: false, message: 'Badminton data not initialized' });
+    }
+
+    // Determine game winner and update gamesWon
+    const team1Id = String(match.team1Id);
+    const team2Id = String(match.team2Id);
+    let gameWinner = null;
+
+    const gamesWonMap = liveScore.badmintonData.gamesWon;
+    const readWins = (key) => {
+      if (gamesWonMap && typeof gamesWonMap.get === 'function') return gamesWonMap.get(key) || 0;
+      return (gamesWonMap && gamesWonMap[key]) || 0;
+    };
+    const writeWins = (key, value) => {
+      if (gamesWonMap && typeof gamesWonMap.set === 'function') gamesWonMap.set(key, value);
+      else liveScore.badmintonData.gamesWon[key] = value;
+    };
+
+    if (liveScore.badmintonData.team1Points > liveScore.badmintonData.team2Points) {
+      gameWinner = team1Id;
+      writeWins(team1Id, readWins(team1Id) + 1);
+    } else if (liveScore.badmintonData.team2Points > liveScore.badmintonData.team1Points) {
+      gameWinner = team2Id;
+      writeWins(team2Id, readWins(team2Id) + 1);
+    }
+
+    liveScore.markModified('badmintonData.gamesWon');
+    liveScore.markModified('badmintonData');
+
+    // Store game history
+    if (!liveScore.badmintonData.gameHistory) {
+      liveScore.badmintonData.gameHistory = [];
+    }
+    liveScore.badmintonData.gameHistory.push({
+      gameNumber: liveScore.badmintonData.currentGame,
+      team1Points: liveScore.badmintonData.team1Points,
+      team2Points: liveScore.badmintonData.team2Points,
+      winner: gameWinner,
+    });
+
+    // Check if match is over (first to 2 games)
+    const team1Wins = readWins(team1Id);
+    const team2Wins = readWins(team2Id);
+    const matchOver = team1Wins >= 2 || team2Wins >= 2;
+
+    if (matchOver) {
+      // Match is over, end the match
+      const populatedMatch = await Match.findById(matchId).populate('team1Id', 'name').populate('team2Id', 'name');
+      const winnerTeam = team1Wins > team2Wins ? populatedMatch.team1Id : populatedMatch.team2Id;
+      const winnerName = winnerTeam?.name || 'Winner';
+      const result = {
+        winner: team1Wins > team2Wins ? match.team1Id : match.team2Id,
+        winType: 'points',
+        winMargin: Math.abs(team1Wins - team2Wins),
+        summary: `${winnerName} wins ${team1Wins}-${team2Wins}`,
+        scores: (liveScore.badmintonData.gameHistory || []).map((g) => ({
+          gameNumber: g.gameNumber,
+          team1Points: g.team1Points,
+          team2Points: g.team2Points,
+          winner: g.winner,
+        })),
+      };
+      match.status = 'completed';
+      match.result = result;
+      await match.save();
+      liveScore.badmintonData.matchStatus = 'completed';
+      await liveScore.save();
+
+      // Update badminton player stats — only for the players actually on court.
+      // Badminton is an individual/pair sport, so a team win doesn't mean every
+      // squad member earned the stat. If match.team1Players / team2Players aren't
+      // set (legacy data), fall back to crediting all team members as before so
+      // old matches don't silently stop producing stats.
+      try {
+        const team1Points = (liveScore.badmintonData.gameHistory || []).reduce((s, g) => s + (g.team1Points || 0), 0);
+        const team2Points = (liveScore.badmintonData.gameHistory || []).reduce((s, g) => s + (g.team2Points || 0), 0);
+        const winnerTeamId = team1Wins > team2Wins ? String(match.team1Id) : String(match.team2Id);
+        const bestRally = Math.max(team1Points, team2Points);
+
+        const resolvePlayers = async (teamId, assigned) => {
+          if (Array.isArray(assigned) && assigned.length > 0) {
+            return Player.find({ _id: { $in: assigned } });
+          }
+          // Legacy fallback — pre-player-assignment matches
+          return Player.find({ teamId });
+        };
+
+        const updateStatsFor = async (players, pointsWonThisMatch, pointsLostThisMatch, wonMatch) => {
+          for (const player of players) {
+            const stats = player.badmintonStats || { matches: 0, wins: 0, winRate: 0, pointsWon: 0, pointsLost: 0, bestRally: 0 };
+            const newMatches = (stats.matches || 0) + 1;
+            const newWins = (stats.wins || 0) + (wonMatch ? 1 : 0);
+            player.badmintonStats = {
+              matches: newMatches,
+              wins: newWins,
+              winRate: Math.round((newWins / newMatches) * 100),
+              pointsWon: (stats.pointsWon || 0) + pointsWonThisMatch,
+              pointsLost: (stats.pointsLost || 0) + pointsLostThisMatch,
+              bestRally: Math.max(stats.bestRally || 0, bestRally),
+            };
+            player.markModified('badmintonStats');
+            await player.save();
+          }
+        };
+
+        const team1Playing = await resolvePlayers(String(match.team1Id), match.team1Players);
+        const team2Playing = await resolvePlayers(String(match.team2Id), match.team2Players);
+        await updateStatsFor(team1Playing, team1Points, team2Points, winnerTeamId === String(match.team1Id));
+        await updateStatsFor(team2Playing, team2Points, team1Points, winnerTeamId === String(match.team2Id));
+      } catch (statsErr) {
+        console.error('Failed to update badminton player stats:', statsErr);
+      }
+
+      const io = req.app.get('io');
+      io.of('/live-scoring').to(`match:${matchId}`).emit('match-end', { matchId, result });
+      return res.json({ success: true, data: liveScore, message: 'Match completed' });
+    }
+
+    // Reset points for next game
+    liveScore.badmintonData.currentGame += 1;
+    liveScore.badmintonData.team1Points = 0;
+    liveScore.badmintonData.team2Points = 0;
+
+    await liveScore.save();
+
+    const io = req.app.get('io');
+    io.of('/live-scoring').to(`match:${matchId}`).emit('game-reset', {
+      matchId,
+      currentGame: liveScore.badmintonData.currentGame,
+      gamesWon: liveScore.badmintonData.gamesWon,
+    });
+
+    res.json({ success: true, data: liveScore });
   } catch (err) {
     next(err);
   }

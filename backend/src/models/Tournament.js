@@ -9,7 +9,7 @@ const tournamentSchema = new mongoose.Schema(
     },
     sport: {
       type: String,
-      enum: ['cricket', 'football'],
+      enum: ['cricket', 'football', 'badminton'],
       default: 'cricket',
     },
     format: {
@@ -20,6 +20,8 @@ const tournamentSchema = new mongoose.Schema(
           const validFormats = {
             cricket: ['T20', 'ODI', 'Test'],
             football: ['League', 'Cup', 'Friendly'],
+            // BWF formats; legacy Singles/Doubles/Mixed Doubles retained for back-compat
+            badminton: ['Knockout', 'Round Robin', 'Group + Knockout', 'Double Elimination', 'Singles', 'Doubles', 'Mixed Doubles'],
           };
           const sport = this.sport || 'cricket';
           return (validFormats[sport] || validFormats.cricket).includes(value);
@@ -29,6 +31,8 @@ const tournamentSchema = new mongoose.Schema(
           const validFormats = {
             cricket: ['T20', 'ODI', 'Test'],
             football: ['League', 'Cup', 'Friendly'],
+            // BWF formats; legacy Singles/Doubles/Mixed Doubles retained for back-compat
+            badminton: ['Knockout', 'Round Robin', 'Group + Knockout', 'Double Elimination', 'Singles', 'Doubles', 'Mixed Doubles'],
           };
           const formats = (validFormats[sport] || validFormats.cricket).join(', ');
           return `Format must be one of: ${formats}`;

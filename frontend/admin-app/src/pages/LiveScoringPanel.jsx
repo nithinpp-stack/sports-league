@@ -52,7 +52,17 @@ export default function LiveScoringPanel() {
   });
   const { data: liveScore } = useQuery({
     queryKey: ['livescore', matchId],
-    queryFn: () => api.get(`/livescores/${matchId}`).then(r => r.data),
+    queryFn: async () => {
+      try {
+        const response = await api.get(`/livescores/${matchId}`);
+        // Handle both { data: liveScore } and { success, data: { data: liveScore } } formats
+        const data = response.data.data || response.data;
+        return data;
+      } catch (err) {
+        if (err.response?.status === 404) return null;
+        throw err;
+      }
+    },
     retry: false,
   });
 
@@ -275,7 +285,13 @@ export default function LiveScoringPanel() {
               </svg>
               <div>
                 <p className="text-sm font-semibold text-amber-800">This match has ended</p>
-                <p className="text-xs text-amber-600 mt-0.5">Reopen the match to make corrections to scores, balls, or wickets.</p>
+                <p className="text-xs text-amber-600 mt-0.5">
+                  {sport === 'badminton'
+                    ? 'Reopen the match to make corrections to game scores or points.'
+                    : sport === 'football'
+                    ? 'Reopen the match to make corrections to goals or cards.'
+                    : 'Reopen the match to make corrections to scores, balls, or wickets.'}
+                </p>
               </div>
             </div>
             <button
@@ -815,6 +831,41 @@ export default function LiveScoringPanel() {
           </>
         )}
 
+        {sport === 'badminton' && (
+          <>
+            {/* ─── Match Confirmation ─── */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-xs font-extrabold text-gray-400 uppercase tracking-widest mb-4">Match Participants</h3>
+              <div className="grid grid-cols-3 gap-3 items-center">
+                <div className="text-center">
+                  <div className="text-sm font-bold text-gray-700 mb-1">{team1?.name}</div>
+                  <div className="text-xs text-gray-500">Team 1</div>
+                </div>
+                <div className="text-center text-gray-400 font-bold">vs</div>
+                <div className="text-center">
+                  <div className="text-sm font-bold text-gray-700 mb-1">{team2?.name}</div>
+                  <div className="text-xs text-gray-500">Team 2</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Start Match */}
+            {!ls && match?.status === 'upcoming' && (
+              <div className="flex justify-center py-3">
+                <button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}
+                  className="px-12 py-4 bg-gray-900 text-white font-extrabold rounded-2xl hover:bg-gray-800 transition-all disabled:opacity-50 text-lg shadow-lg hover:shadow-xl active:scale-[0.98]">
+                  {startMutation.isPending ? 'Starting...' : 'Start Match'}
+                </button>
+              </div>
+            )}
+
+            {/* Badminton Scorecard */}
+            {ls && team1 && team2 && (
+              <BadmintonScoringForm match={match} liveScore={ls} matchId={matchId} qc={qc} team1={team1} team2={team2} />
+            )}
+          </>
+        )}
+
         {sport === 'football' && match && (
           <FootballScoringForm match={match} liveScore={ls} matchId={matchId} qc={qc} />
         )}
@@ -940,6 +991,261 @@ export default function LiveScoringPanel() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function BadmintonScoringForm({ match, liveScore, matchId, qc, team1, team2 }) {
+  if (!liveScore || !team1 || !team2) {
+    return <div className="text-center py-8 text-gray-500">Loading badminton match data...</div>;
+  }
+
+  const badmintonData = liveScore.badmintonData || {};
+  const [team1Points, setTeam1Points] = useState(badmintonData.team1Points || 0);
+  const [team2Points, setTeam2Points] = useState(badmintonData.team2Points || 0);
+  const [currentGame, setCurrentGame] = useState(badmintonData.currentGame || 1);
+
+  // Sync with liveScore updates
+  useEffect(() => {
+    const data = liveScore?.badmintonData;
+    if (data) {
+      setTeam1Points(data.team1Points ?? 0);
+      setTeam2Points(data.team2Points ?? 0);
+      setCurrentGame(data.currentGame ?? 1);
+    }
+  }, [liveScore]);
+
+  const pointMutation = useMutation({
+    mutationFn: (data) => api.post(`/livescores/${matchId}/ball`, data),
+    onSuccess: () => {
+      toast.success('Point recorded');
+      qc.invalidateQueries(['livescore', matchId]);
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed'),
+  });
+
+  const recordPoint = (teamId) => {
+    pointMutation.mutate({
+      scoringTeamId: teamId,
+      points: 1,
+      game: currentGame,
+    });
+  };
+
+  const adjustPoint = (teamId, delta) => {
+    pointMutation.mutate({
+      scoringTeamId: teamId,
+      points: delta,
+      game: currentGame,
+    });
+  };
+
+  const endGameMutation = useMutation({
+    mutationFn: () => api.post(`/livescores/${matchId}/next-game`),
+    onSuccess: (data) => {
+      const message = data.data.message || 'Game ended';
+      toast.success(message);
+      qc.invalidateQueries(['livescore', matchId]);
+      qc.invalidateQueries(['match', matchId]);
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to start next game'),
+  });
+
+  const isMatchCompleted = match?.status === 'completed';
+  const gameWinner = team1Points > team2Points ? team1?.name : team2Points > team1Points ? team2?.name : null;
+  const gameHasWinner = team1Points >= 21 || team2Points >= 21;
+
+  // Count completed games from history for decider detection
+  const gameHistory = badmintonData.gameHistory || [];
+  const t1Id = String(team1?._id || '');
+  const t2Id = String(team2?._id || '');
+  const t1GameWins = gameHistory.filter((g) => String(g.winner) === t1Id).length;
+  const t2GameWins = gameHistory.filter((g) => String(g.winner) === t2Id).length;
+  const isDeciderGame = currentGame >= 3 || t1GameWins === 2 || t2GameWins === 2;
+
+  // ═══════════════════════════════════════════
+  // COMPLETED MATCH — read-only review
+  // ═══════════════════════════════════════════
+  if (isMatchCompleted) {
+    const resultScores = Array.isArray(match?.result?.scores) && match.result.scores.length
+      ? match.result.scores
+      : gameHistory;
+    const winnerId = String(match?.result?.winner?._id || match?.result?.winner || '');
+    const t1IsWinner = winnerId === t1Id;
+    const t2IsWinner = winnerId === t2Id;
+    const t1TotalGames = resultScores.filter((g) => (g.team1Points ?? 0) > (g.team2Points ?? 0)).length;
+    const t2TotalGames = resultScores.filter((g) => (g.team2Points ?? 0) > (g.team1Points ?? 0)).length;
+
+    return (
+      <div className="space-y-4">
+        {/* Final Score Header */}
+        <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-6 text-white">
+          <p className="text-xs text-emerald-400 uppercase tracking-widest mb-3 font-bold">● Match Completed</p>
+          <div className="grid grid-cols-3 gap-4 items-center">
+            <div className="text-center">
+              <p className={`text-5xl font-black mb-1 ${t1IsWinner ? 'text-emerald-400' : 'text-gray-500'}`}>{t1TotalGames}</p>
+              <p className={`text-sm font-semibold ${t1IsWinner ? 'text-white' : 'text-gray-400'}`}>
+                {team1?.name}
+                {t1IsWinner && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">Winner</span>}
+              </p>
+            </div>
+            <div className="text-center text-xs text-gray-400 uppercase tracking-widest font-bold">Games</div>
+            <div className="text-center">
+              <p className={`text-5xl font-black mb-1 ${t2IsWinner ? 'text-emerald-400' : 'text-gray-500'}`}>{t2TotalGames}</p>
+              <p className={`text-sm font-semibold ${t2IsWinner ? 'text-white' : 'text-gray-400'}`}>
+                {team2?.name}
+                {t2IsWinner && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">Winner</span>}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Per-game breakdown */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-5">
+          <h3 className="text-xs font-extrabold text-gray-400 uppercase tracking-widest mb-4">Game-by-Game</h3>
+          <div className="space-y-2">
+            {resultScores.map((g, i) => {
+              const t1Won = (g.team1Points ?? 0) > (g.team2Points ?? 0);
+              return (
+                <div key={i} className="grid grid-cols-5 items-center gap-3 py-2 border-b last:border-b-0 border-gray-100">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Game {g.gameNumber ?? i + 1}</div>
+                  <div className={`text-right text-xl font-black tabular-nums ${t1Won ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    {g.team1Points ?? 0}
+                  </div>
+                  <div className="text-center text-[10px] text-gray-300 font-bold">—</div>
+                  <div className={`text-left text-xl font-black tabular-nums ${!t1Won ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    {g.team2Points ?? 0}
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                      {t1Won ? team1?.name : team2?.name}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {match?.result?.summary && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-sm font-semibold text-emerald-700 text-center">{match.result.summary}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════
+  // LIVE / UPCOMING — active scoring controls
+  // ═══════════════════════════════════════════
+  return (
+    <div className="space-y-4">
+      {/* Match Header */}
+      <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-6 text-white">
+        <p className="text-xs text-gray-400 uppercase tracking-widest mb-2">
+          Game {currentGame} of 3 {isDeciderGame && currentGame >= 3 && <span className="text-amber-400 ml-2">● Decider</span>}
+        </p>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center">
+            <p className="text-4xl font-black mb-1">{team1Points}</p>
+            <p className="text-sm font-semibold text-gray-300">
+              {team1?.name}
+              <span className="ml-2 text-[10px] text-gray-500">({t1GameWins})</span>
+            </p>
+          </div>
+          <div className="flex items-center justify-center">
+            <div className="text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wider">vs</p>
+            </div>
+          </div>
+          <div className="text-center">
+            <p className="text-4xl font-black mb-1">{team2Points}</p>
+            <p className="text-sm font-semibold text-gray-300">
+              {team2?.name}
+              <span className="ml-2 text-[10px] text-gray-500">({t2GameWins})</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Scoring Buttons */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Team 1 */}
+        <div className="flex items-stretch gap-2">
+          <button onClick={() => recordPoint(team1?._id)}
+            disabled={pointMutation.isPending || gameHasWinner}
+            className="flex-1 py-6 px-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-bold text-lg text-emerald-700 shadow-sm hover:shadow-md">
+            +1 Point<br/><span className="text-xs text-emerald-600 font-semibold">{team1?.name}</span>
+          </button>
+          <button onClick={() => adjustPoint(team1?._id, -1)}
+            disabled={pointMutation.isPending || team1Points <= 0}
+            title="Undo last point"
+            className="w-14 rounded-2xl bg-white border-2 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-bold text-emerald-700 shadow-sm">
+            −1
+          </button>
+        </div>
+        {/* Team 2 */}
+        <div className="flex items-stretch gap-2">
+          <button onClick={() => recordPoint(team2?._id)}
+            disabled={pointMutation.isPending || gameHasWinner}
+            className="flex-1 py-6 px-4 rounded-2xl bg-blue-50 border-2 border-blue-200 hover:border-blue-400 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-bold text-lg text-blue-700 shadow-sm hover:shadow-md">
+            +1 Point<br/><span className="text-xs text-blue-600 font-semibold">{team2?.name}</span>
+          </button>
+          <button onClick={() => adjustPoint(team2?._id, -1)}
+            disabled={pointMutation.isPending || team2Points <= 0}
+            title="Undo last point"
+            className="w-14 rounded-2xl bg-white border-2 border-blue-200 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-bold text-blue-700 shadow-sm">
+            −1
+          </button>
+        </div>
+      </div>
+
+      {/* Game Status */}
+      {gameHasWinner && (
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl p-6">
+          <p className="text-center font-bold text-lg text-amber-900 mb-4">
+            {gameWinner} wins this game!
+          </p>
+          {/* If this game win decides the match (2 games won), offer End Match */}
+          {(() => {
+            // Projected game-wins AFTER this game is confirmed
+            const t1Proj = t1GameWins + (team1Points > team2Points ? 1 : 0);
+            const t2Proj = t2GameWins + (team2Points > team1Points ? 1 : 0);
+            const matchDecided = t1Proj >= 2 || t2Proj >= 2;
+            if (matchDecided) {
+              return (
+                <button onClick={() => endGameMutation.mutate()}
+                  disabled={endGameMutation.isPending}
+                  className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl transition-all">
+                  {endGameMutation.isPending ? 'Ending Match...' : 'End Match'}
+                </button>
+              );
+            }
+            return (
+              <button onClick={() => endGameMutation.mutate()}
+                disabled={endGameMutation.isPending}
+                className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold rounded-xl transition-all">
+                {endGameMutation.isPending ? 'Starting Next Game...' : 'Start Game ' + (currentGame + 1)}
+              </button>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Match Statistics */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-4">
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Points Required to Win</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-emerald-50 rounded-xl p-3 text-center">
+            <p className="text-2xl font-black text-emerald-700">{Math.max(0, 21 - team1Points)}</p>
+            <p className="text-xs text-emerald-600 font-semibold mt-1">{team1?.name}</p>
+          </div>
+          <div className="bg-blue-50 rounded-xl p-3 text-center">
+            <p className="text-2xl font-black text-blue-700">{Math.max(0, 21 - team2Points)}</p>
+            <p className="text-xs text-blue-600 font-semibold mt-1">{team2?.name}</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

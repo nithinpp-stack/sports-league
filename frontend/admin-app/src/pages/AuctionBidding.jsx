@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -22,13 +22,10 @@ export default function AuctionBidding() {
   // Real-time flags
   const [goingOnce, setGoingOnce] = useState(false);
   const [goingTwice, setGoingTwice] = useState(false);
-  const [bidHistory, setBidHistory] = useState([]);
 
   // SOLD overlay
   const [soldOverlay, setSoldOverlay] = useState(null);
   const [unsoldOverlay, setUnsoldOverlay] = useState(false);
-
-  const bidHistoryRef = useRef(null);
 
   // --- Data fetching ---
   const fetchAuction = useCallback(async () => {
@@ -83,30 +80,21 @@ export default function AuctionBidding() {
     auctionSocket.connect();
     auctionSocket.emit('join-auction', tournamentId);
 
-    auctionSocket.on('new-player', (data) => {
+    auctionSocket.on('new-player', () => {
       setGoingOnce(false);
       setGoingTwice(false);
-      setBidHistory([]);
       refreshAll();
     });
 
-    auctionSocket.on('new-bid', (data) => {
+    auctionSocket.on('new-bid', () => {
       setGoingOnce(false);
       setGoingTwice(false);
-      setBidHistory((prev) => [
-        { team: data.teamName || data.team || 'Unknown', amount: data.amount, time: new Date() },
-        ...prev,
-      ]);
       refreshAll();
     });
 
-    auctionSocket.on('bid-placed', (data) => {
+    auctionSocket.on('bid-placed', () => {
       setGoingOnce(false);
       setGoingTwice(false);
-      setBidHistory((prev) => [
-        { team: data.teamName || data.team || 'Unknown', amount: data.amount, time: new Date() },
-        ...prev,
-      ]);
       refreshAll();
     });
 
@@ -166,12 +154,18 @@ export default function AuctionBidding() {
   const currentPlayer = auction?.currentPlayerId;
   const currentBid = auction?.currentBid ?? 0;
   const bidIncrement = auction?.bidIncrement ?? 5;
-  const nextMinBid = currentBid + bidIncrement;
+  const hasBidder = Boolean(auction?.currentBidderId);
+  // Lowest legal bid = strictly above current when someone already bid, or the
+  // base price exactly for the opening bid. Matches backend placeBid() logic.
+  const minLegalBid = hasBidder ? currentBid + 1 : currentBid;
+  // "Quick bid" convenience button still offers +5 (or the live bracket
+  // increment) as a one-click nudge, but it's no longer enforced as a minimum.
+  const quickBidAmount = currentBid + bidIncrement;
   const maxSquadSize = auction?.maxSquadSize ?? 15;
   const remainingPoints = myTeam?.remainingPoints ?? myTeam?.remainingBudget ?? 0;
   const squadCount = myTeam?.playerCount ?? myTeam?.players?.length ?? 0;
   const isSquadFull = squadCount >= maxSquadSize;
-  const canAfford = remainingPoints >= nextMinBid;
+  const canAfford = remainingPoints >= minLegalBid;
   const isPaused = auction?.status === 'paused';
   const isLive = auction?.status === 'live';
   const isEnded = auction?.status === 'completed';
@@ -190,26 +184,48 @@ export default function AuctionBidding() {
   const disabledReason = getDisabledReason();
   const isBidDisabled = !!disabledReason;
 
+  // --- Derived rosters from auction.soldPlayers ---
+  // Single source of truth: the auction populates soldPlayers with player &
+  // team names, so we don't need a separate roster fetch per update. My Squad
+  // = sales to my team; Auction History = every sale (newest first).
+  const soldPlayers = Array.isArray(auction?.soldPlayers) ? auction.soldPlayers : [];
+  const mySquad = myTeam
+    ? soldPlayers.filter((sp) => {
+        const tid = sp.teamId?._id || sp.teamId;
+        return tid && tid.toString() === myTeam._id?.toString();
+      })
+    : [];
+  const mySquadSpend = mySquad.reduce((sum, sp) => sum + (sp.amount || 0), 0);
+  const auctionHistory = [...soldPlayers].reverse();
+
   const handleBid = async (amount) => {
     if (bidding || isBidDisabled) return;
     setBidding(true);
     try {
       await api.post(`/auctions/${tournamentId}/bid`, { amount });
-      toast.success(`Bid placed: ${amount} pts`);
+      toast.success(`Bid placed · ${amount.toLocaleString()} pts`);
       setCustomAmount('');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Bid failed');
+      toast.error(err.response?.data?.message || 'Failed to place bid');
     } finally {
       setBidding(false);
     }
   };
 
-  const handleQuickBid = () => handleBid(nextMinBid);
+  const handleQuickBid = () => handleBid(quickBidAmount);
 
   const handleCustomBid = () => {
     const amt = parseInt(customAmount, 10);
-    if (!amt || amt < nextMinBid) {
-      toast.error(`Minimum bid is ${nextMinBid} pts`);
+    if (!amt) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+    if (amt < minLegalBid) {
+      toast.error(
+        hasBidder
+          ? `Minimum bid: ${minLegalBid.toLocaleString()} pts`
+          : `Minimum bid: ${minLegalBid.toLocaleString()} pts (base price)`
+      );
       return;
     }
     handleBid(amt);
@@ -305,42 +321,9 @@ export default function AuctionBidding() {
         </div>
 
         {/* Main Content Grid */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-5">
-          {/* Left: Bid History */}
-          <div className="lg:col-span-1 order-3 lg:order-1">
-            <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 h-full max-h-[calc(100vh-160px)] flex flex-col">
-              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3">Bid History</h3>
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1" ref={bidHistoryRef}>
-                {bidHistory.length === 0 ? (
-                  <p className="text-gray-600 text-sm text-center py-8">No bids yet</p>
-                ) : (
-                  bidHistory.map((bid, i) => (
-                    <div
-                      key={i}
-                      className={`py-2.5 px-3 rounded-lg border transition-all ${
-                        i === 0
-                          ? 'bg-emerald-900/30 border-emerald-700/50'
-                          : 'bg-gray-800/50 border-gray-700/30'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-white text-sm font-medium truncate">{bid.team}</span>
-                        <span className={`font-bold text-sm ${i === 0 ? 'text-emerald-400' : 'text-gray-300'}`}>
-                          {bid.amount?.toLocaleString()} pts
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-gray-500 mt-0.5">
-                        {bid.time?.toLocaleTimeString()}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Center: Main Bidding Area */}
-          <div className="lg:col-span-2 order-1 lg:order-2 flex flex-col items-center justify-center">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Left: Main Bidding Area */}
+          <div className="lg:col-span-2 order-1 flex flex-col items-center justify-center">
             {!auction || isEnded ? (
               /* Ended / No Auction */
               <div className="text-center py-20">
@@ -403,7 +386,7 @@ export default function AuctionBidding() {
                     }
                   </p>
                   <p className="text-gray-600 text-xs mt-2">
-                    Min increment: <span className="text-gray-400">+{bidIncrement}</span> &middot; Next min: <span className="text-indigo-400 font-semibold">{nextMinBid.toLocaleString()} pts</span>
+                    Any amount above the current bid is valid &middot; capped only by your remaining points
                   </p>
                 </div>
 
@@ -439,7 +422,7 @@ export default function AuctionBidding() {
                         Placing Bid...
                       </span>
                     ) : (
-                      `BID ${nextMinBid.toLocaleString()} pts`
+                      `BID ${quickBidAmount.toLocaleString()} pts`
                     )}
                   </button>
 
@@ -449,7 +432,7 @@ export default function AuctionBidding() {
                       type="number"
                       value={customAmount}
                       onChange={(e) => setCustomAmount(e.target.value)}
-                      placeholder={`Custom amount (min ${nextMinBid})`}
+                      placeholder={hasBidder ? `Any amount above ${currentBid}` : `Any amount (base ${currentBid})`}
                       disabled={isBidDisabled}
                       className="flex-1 bg-gray-800/80 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                       onKeyDown={(e) => e.key === 'Enter' && handleCustomBid()}
@@ -467,22 +450,33 @@ export default function AuctionBidding() {
                     </button>
                   </div>
 
-                  {/* Disabled reason */}
-                  {disabledReason && currentPlayer && (
+                  {/* Status line:
+                      - Celebratory pill when the user is already the top bidder
+                        (not a warning — you're winning!)
+                      - Yellow warning only for actual blockers (paused, squad
+                        full, insufficient points, auction not live). */}
+                  {isCurrentBidder && currentPlayer ? (
+                    <div className="flex items-center justify-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm font-semibold px-4 py-2 rounded-xl">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      You&rsquo;re leading &mdash; waiting for counter-bids
+                    </div>
+                  ) : disabledReason && currentPlayer ? (
                     <p className="text-yellow-500/80 text-sm font-medium flex items-center justify-center gap-1.5">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                       </svg>
                       {disabledReason}
                     </p>
-                  )}
+                  ) : null}
                 </div>
               </div>
             )}
           </div>
 
           {/* Right: All Teams */}
-          <div className="lg:col-span-1 order-2 lg:order-3">
+          <div className="lg:col-span-1 order-2">
             <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 h-full max-h-[calc(100vh-160px)] flex flex-col">
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3">All Teams</h3>
               <div className="flex-1 overflow-y-auto space-y-2 pr-1">
@@ -529,6 +523,146 @@ export default function AuctionBidding() {
             </div>
           </div>
         </div>
+
+        {/* Second row: My Squad + Auction History */}
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* My Squad */}
+          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">
+                My Squad
+              </h3>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-gray-500">
+                  <span className="text-white font-semibold">{mySquad.length}</span>
+                  <span className="text-gray-500">/{maxSquadSize}</span> players
+                </span>
+                <span className="text-gray-500">
+                  Spent: <span className="text-emerald-400 font-semibold">{mySquadSpend.toLocaleString()} pts</span>
+                </span>
+              </div>
+            </div>
+
+            {!myTeam ? (
+              <p className="text-gray-600 text-sm text-center py-8">
+                No team assigned.
+              </p>
+            ) : mySquad.length === 0 ? (
+              <p className="text-gray-600 text-sm text-center py-8">
+                No players bought yet — your won bids will appear here.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-widest text-gray-500 border-b border-gray-800">
+                      <th className="py-2 pr-3 font-medium">#</th>
+                      <th className="py-2 pr-3 font-medium">Player</th>
+                      <th className="py-2 pr-3 font-medium">Skill</th>
+                      <th className="py-2 pr-3 font-medium text-right">Base</th>
+                      <th className="py-2 font-medium text-right">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mySquad.map((sp, i) => {
+                      const p = sp.playerId || {};
+                      return (
+                        <tr
+                          key={`${p._id || i}-${i}`}
+                          className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors"
+                        >
+                          <td className="py-2.5 pr-3 text-gray-500">{i + 1}</td>
+                          <td className="py-2.5 pr-3 text-white font-medium">{p.name || '—'}</td>
+                          <td className="py-2.5 pr-3">
+                            {p.skill ? (
+                              <span className="bg-indigo-600/20 text-indigo-300 text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider border border-indigo-500/20">
+                                {p.skill}
+                              </span>
+                            ) : (
+                              <span className="text-gray-600">—</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 pr-3 text-right text-gray-400">
+                            {p.basePoints?.toLocaleString() ?? '—'}
+                          </td>
+                          <td className="py-2.5 text-right text-emerald-400 font-semibold">
+                            {sp.amount?.toLocaleString() ?? '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Auction History — every player sold so far, newest first */}
+          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">
+                Auction History
+              </h3>
+              <span className="text-xs text-gray-500">
+                <span className="text-white font-semibold">{auctionHistory.length}</span> sold
+              </span>
+            </div>
+
+            {auctionHistory.length === 0 ? (
+              <p className="text-gray-600 text-sm text-center py-8">
+                No players sold yet.
+              </p>
+            ) : (
+              <div className="max-h-80 overflow-y-auto pr-1 scrollbar-hide">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-900/95 backdrop-blur-sm">
+                    <tr className="text-left text-[11px] uppercase tracking-widest text-gray-500 border-b border-gray-800">
+                      <th className="py-2 pr-3 font-medium">Player</th>
+                      <th className="py-2 pr-3 font-medium">Bought By</th>
+                      <th className="py-2 font-medium text-right">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auctionHistory.map((sp, i) => {
+                      const p = sp.playerId || {};
+                      const t = sp.teamId || {};
+                      const tid = t._id || sp.teamId;
+                      const isMine = myTeam && tid && tid.toString() === myTeam._id?.toString();
+                      return (
+                        <tr
+                          key={`${p._id || i}-${i}`}
+                          className={`border-b border-gray-800/50 transition-colors ${
+                            isMine ? 'bg-emerald-900/10' : 'hover:bg-gray-800/30'
+                          }`}
+                        >
+                          <td className="py-2.5 pr-3">
+                            <span className={isMine ? 'text-emerald-300 font-medium' : 'text-white font-medium'}>
+                              {p.name || '—'}
+                            </span>
+                            {p.skill && (
+                              <span className="ml-2 text-[10px] text-gray-500 uppercase tracking-wider">
+                                {p.skill}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 pr-3 text-gray-300">
+                            {t.name || '—'}
+                            {isMine && (
+                              <span className="text-emerald-500 text-[10px] ml-1.5">(You)</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 text-right text-emerald-400 font-semibold">
+                            {sp.amount?.toLocaleString() ?? '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Inline keyframe styles */}
@@ -543,6 +677,9 @@ export default function AuctionBidding() {
         }
         .animate-fade-in { animation: fade-in 0.3s ease-out; }
         .animate-scale-in { animation: scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        /* Hide the visible scrollbar track but keep mouse-wheel scrolling */
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; width: 0; height: 0; }
       `}</style>
     </div>
   );

@@ -22,8 +22,11 @@ const userSchema = new mongoose.Schema(
       select: false,
     },
     role: {
+      // Kept in sync with validators/auth.js (the register validator accepts
+      // the same set) and userController.registerManager / registerEventManager
+      // which both write one of these string values directly.
       type: String,
-      enum: ['player'],
+      enum: ['player', 'team_owner', 'manager', 'event_manager'],
       default: 'player',
     },
     phone: {
