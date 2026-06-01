@@ -45,7 +45,7 @@ export const adminLogin = async (req, res, next) => {
       const accessToken = generateAccessToken(admin);
       const refreshToken = generateRefreshToken(admin);
       res.cookie('refreshToken', refreshToken, {
-        httpOnly: true, secure: env.nodeEnv === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000,
+        httpOnly: true, secure: env.nodeEnv === 'production', sameSite: env.nodeEnv === 'production' ? 'none' : 'lax', maxAge: 7 * 24 * 60 * 60 * 1000,
       });
       return res.json({ success: true, data: { user: admin, accessToken } });
     }
@@ -58,7 +58,7 @@ export const adminLogin = async (req, res, next) => {
       const accessToken = generateUserAccessToken(user);
       const refreshToken = generateUserRefreshToken(user);
       res.cookie('refreshToken', refreshToken, {
-        httpOnly: true, secure: env.nodeEnv === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000,
+        httpOnly: true, secure: env.nodeEnv === 'production', sameSite: env.nodeEnv === 'production' ? 'none' : 'lax', maxAge: 7 * 24 * 60 * 60 * 1000,
       });
       return res.json({ success: true, data: { user, accessToken } });
     }
@@ -103,6 +103,8 @@ export const adminRefresh = async (req, res, next) => {
 };
 
 export const adminLogout = async (req, res) => {
-  res.clearCookie('refreshToken');
+  res.clearCookie('refreshToken', {
+    httpOnly: true, secure: env.nodeEnv === 'production', sameSite: env.nodeEnv === 'production' ? 'none' : 'lax',
+  });
   res.json({ success: true, data: { message: 'Logged out successfully' } });
 };

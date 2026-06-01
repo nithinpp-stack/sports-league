@@ -6,6 +6,12 @@ if [ -n "$VITE_API_URL" ]; then
 fi
 # Set PORT (Railway provides PORT env var)
 export PORT="${PORT:-80}"
-envsubst '${PORT}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
+# nginx 1.23+ uses http.d/, older versions use conf.d/
+if [ -d /etc/nginx/http.d ]; then
+  CONF_OUT="/etc/nginx/http.d/default.conf"
+else
+  CONF_OUT="/etc/nginx/conf.d/default.conf"
+fi
+envsubst '${PORT}' < /etc/nginx/conf.d/default.conf.template > "$CONF_OUT"
 echo "Nginx listening on port $PORT"
 exec "$@"
