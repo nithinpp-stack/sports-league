@@ -16,8 +16,9 @@ services:
         value: 7d
 
   # ── Admin Dashboard (Static Site) ────────────────────────────────────────────
-  - type: static
+  - type: web
     name: sports-league-admin
+    runtime: static
     rootDir: frontend/admin-app
     buildCommand: npm install && npm run build
     staticPublishPath: dist
@@ -27,8 +28,9 @@ services:
         destination: /index.html
 
   # ── Public App (Static Site) ─────────────────────────────────────────────────
-  - type: static
+  - type: web
     name: sports-league-public
+    runtime: static
     rootDir: frontend/public-app
     buildCommand: npm install && npm run build
     staticPublishPath: dist
