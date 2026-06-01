@@ -3,6 +3,7 @@ services:
   - type: web
     name: sports-league-backend
     runtime: node
+    plan: free
     rootDir: backend
     buildCommand: npm install
     startCommand: node server.js
@@ -13,13 +14,12 @@ services:
         value: 15m
       - key: JWT_REFRESH_EXPIRE
         value: 7d
-      # Set these manually in Render dashboard after deploy:
-      # MONGODB_URI, JWT_SECRET, JWT_REFRESH_SECRET, CORS_ORIGINS
 
   # ── Admin Dashboard ──────────────────────────────────────────────────────────
   - type: web
     name: sports-league-admin
     runtime: static
+    plan: free
     rootDir: frontend/admin-app
     buildCommand: npm install && npm run build
     staticPublishPath: dist
@@ -27,14 +27,12 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
-    envVars:
-      - key: VITE_API_URL
-        sync: false  # Set this to your backend Render URL
 
   # ── Public App ───────────────────────────────────────────────────────────────
   - type: web
     name: sports-league-public
     runtime: static
+    plan: free
     rootDir: frontend/public-app
     buildCommand: npm install && npm run build
     staticPublishPath: dist
@@ -42,6 +40,3 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
-    envVars:
-      - key: VITE_API_URL
-        sync: false  # Set this to your backend Render URL
